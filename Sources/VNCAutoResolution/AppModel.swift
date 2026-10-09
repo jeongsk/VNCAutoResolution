@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import VNCAutoResolutionCore
 
@@ -20,6 +21,13 @@ final class AppModel: ObservableObject {
         self.detector = detector
         core = AppCore(vnc: detector, display: display, settings: settings, clock: clock)
         launchAtLogin = LoginItem.isEnabled
+        // 모니터·더미 플러그 연결/해제 등 디스플레이 구성 변경 시 해상도 목록을 갱신한다.
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.displayConfigurationChanged() }
+        }
         Task { await pollLoop() }
     }
 
@@ -40,6 +48,7 @@ final class AppModel: ObservableObject {
     var currentID: String? { core.resolution.currentID }
     var isConnected: Bool { core.resolution.isConnected }
     var hasOriginal: Bool { core.resolution.hasOriginal }
+    var hasFewOptions: Bool { core.resolution.hasFewOptions }
     var lastMessage: String { loginMessage ?? core.resolution.lastMessage }
 
     var enabled: Bool {
@@ -62,6 +71,11 @@ final class AppModel: ObservableObject {
     func restoreOriginal() {
         objectWillChange.send()
         core.resolution.restoreOriginal()
+    }
+
+    private func displayConfigurationChanged() {
+        objectWillChange.send()
+        core.resolution.displayConfigurationChanged()
     }
 
     func setLaunchAtLogin(_ on: Bool) {

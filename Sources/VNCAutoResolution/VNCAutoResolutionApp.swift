@@ -31,6 +31,9 @@ struct MenuContent: View {
         if !state.lastMessage.isEmpty {
             Text(state.lastMessage)
         }
+        if state.hasFewOptions {
+            Text("선택할 수 있는 해상도가 적습니다. 모니터 없는 Mac이라면 더미 플러그나 가상 디스플레이 도구를 권장합니다.")
+        }
 
         Divider()
 

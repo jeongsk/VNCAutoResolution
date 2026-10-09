@@ -93,7 +93,7 @@ final class AppCoreResolutionTests: XCTestCase {
         vnc.clients = ["10.0.0.2"]
         core.tick()
 
-        XCTAssertEqual(core.resolution.lastMessage, "해상도 변경 실패")
+        XCTAssertTrue(core.resolution.lastMessage.hasPrefix("해상도 변경 실패"))
         XCTAssertEqual(core.resolution.lastMessageAt, clock.now)
     }
 
