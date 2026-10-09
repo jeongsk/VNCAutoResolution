@@ -13,7 +13,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var launchAtLogin: Bool
 
     init(
-        detector: VNCDetecting = NetstatVNCDetector(),
+        detector: VNCDetecting = SocketVNCDetector(),
         display: DisplayControlling = CoreGraphicsDisplay(),
         settings: SettingsStoring = UserDefaultsSettingsStore(),
         clock: Clock = SystemClock(),
