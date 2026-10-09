@@ -20,6 +20,10 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp "$BIN_DIR/$NAME" "$APP/Contents/MacOS/$NAME"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+# 입력 소스 전환 도우미 (#12)
+mkdir -p "$APP/Contents/Helpers"
+cp "$BIN_DIR/VNCInputSourceHelper" "$APP/Contents/Helpers/VNCInputSourceHelper"
+codesign --force --sign - "$APP/Contents/Helpers/VNCInputSourceHelper"
 
 # ad-hoc 서명 (로그인 항목 등록·로컬 네트워크 권한에 필요)
 codesign --force --sign - "$APP"

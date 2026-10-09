@@ -41,7 +41,30 @@ final class CarbonInputSource: InputSourcing {
         guard let source = Self.selectableSources().first(where: { Self.stringProperty($0, kTISPropertyInputSourceID) == id })
         else { return false }
         lastSelect = Date()
+        // 이 앱에서 직접 전환하면 앞에 있는 앱이 약 1초 뒤 되돌린다(#12). 도우미 프로세스로 전환한다.
+        if let ok = Self.selectWithHelper(id: id) { return ok }
         return TISSelectInputSource(source) == noErr
+    }
+
+    /// 번들의 도우미로 전환한다. 도우미가 없거나 실행에 실패하면 nil (직접 전환으로 대체).
+    private static func selectWithHelper(id: String) -> Bool? {
+        let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/VNCInputSourceHelper")
+        guard FileManager.default.isExecutableFile(atPath: helper.path) else {
+            log.debug("도우미 없음, 직접 전환")
+            return nil
+        }
+        let process = Process()
+        process.executableURL = helper
+        process.arguments = [id]
+        do {
+            try process.run()
+        } catch {
+            log.debug("도우미 실행 실패: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        process.waitUntilExit()
+        log.debug("도우미 전환 \(id, privacy: .public): 종료 코드 \(process.terminationStatus, privacy: .public)")
+        return process.terminationStatus == 0
     }
 
     // MARK: TIS 도우미

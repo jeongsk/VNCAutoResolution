@@ -12,6 +12,8 @@ let package = Package(
             name: "VNCAutoResolution",
             dependencies: ["VNCAutoResolutionCore"]
         ),
+        // 입력 소스 전환 도우미: AppKit 없는 별도 프로세스에서 전환해야 유지된다 (#12).
+        .executableTarget(name: "VNCInputSourceHelper"),
         .testTarget(
             name: "VNCAutoResolutionCoreTests",
             dependencies: ["VNCAutoResolutionCore"]
