@@ -11,6 +11,11 @@ struct VNCAutoResolutionApp: App {
         } label: {
             Image(systemName: state.isConnected ? "display.and.arrow.down" : "display")
         }
+
+        // 설정 창 (메뉴의 "피어 설정…"에서 연다). Window 씬은 macOS 13에서 실행 시 자동으로 열려 Settings 씬을 쓴다.
+        Settings {
+            PairingSettingsView(state: state)
+        }
     }
 }
 
@@ -45,6 +50,10 @@ struct MenuContent: View {
             .disabled(state.targetID.isEmpty)
         Button("원래 해상도로 복원") { state.restoreOriginal() }
             .disabled(!state.hasOriginal)
+
+        Divider()
+
+        PeerMenuSection(state: state)
 
         Divider()
 

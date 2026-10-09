@@ -12,14 +12,16 @@ public final class AppCore {
         settings: SettingsStoring,
         clock: Clock,
         peerTransport: PeerTransporting = NullPeerTransport(),
-        peerSettings: (PeerSettingsStoring & PassphraseStoring) = InMemoryPeerStores(),
+        peerSettings: PeerSettingsStoring? = nil,
+        passphraseStore: PassphraseStoring? = nil,
         deviceName: String = "Mac"
     ) {
         self.vnc = vnc
         self.resolution = ResolutionController(display: display, settings: settings, clock: clock)
+        let fallback = InMemoryPeerStores()
         self.peers = PeerManager(
             deviceName: deviceName, transport: peerTransport,
-            settings: peerSettings, secrets: peerSettings, clock: clock)
+            settings: peerSettings ?? fallback, secrets: passphraseStore ?? fallback, clock: clock)
     }
 
     /// 폴링 한 번: VNC 포트를 읽어 `handle(clients:)`로 넘긴다. (블로킹 호출 — 테스트에서 직접 호출)

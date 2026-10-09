@@ -15,12 +15,29 @@ final class AppModel: ObservableObject {
         detector: VNCDetecting = NetstatVNCDetector(),
         display: DisplayControlling = CoreGraphicsDisplay(),
         settings: SettingsStoring = UserDefaultsSettingsStore(),
-        clock: Clock = SystemClock()
+        clock: Clock = SystemClock(),
+        peerSettings: PeerSettingsStoring = UserDefaultsPeerSettings(),
+        passphraseStore: PassphraseStoring = KeychainPassphraseStore()
     ) {
         self.detector = detector
-        core = AppCore(vnc: detector, display: display, settings: settings, clock: clock)
+        // 피어 전송: Bonjour 서비스 이름은 deviceID(기기마다 유일, 사전순 비교로 연결 주체 결정).
+        let transport = NetworkPeerTransport(serviceName: peerSettings.deviceID, eventQueue: .main)
+        core = AppCore(
+            vnc: detector, display: display, settings: settings, clock: clock,
+            peerTransport: transport, peerSettings: peerSettings, passphraseStore: passphraseStore,
+            deviceName: Host.current().localizedName ?? "Mac")
         launchAtLogin = LoginItem.isEnabled
+        startPeers(transport)
         Task { await pollLoop() }
+    }
+
+    /// 전송 이벤트(메인 큐로 전달됨)를 코어 피어 매니저로 연결하고 저장된 설정으로 시작한다.
+    private func startPeers(_ transport: NetworkPeerTransport) {
+        core.peers.onChange = { [weak self] in self?.objectWillChange.send() }
+        transport.start { [weak self] event in
+            MainActor.assumeIsolated { self?.core.peers.handle(event) }
+        }
+        core.peers.applyStoredConfig()
     }
 
     private func pollLoop() async {
@@ -50,6 +67,18 @@ final class AppModel: ObservableObject {
     var targetID: String {
         get { core.resolution.targetID }
         set { objectWillChange.send(); core.resolution.targetID = newValue }
+    }
+
+    // MARK: 피어 (읽기 전용 + 설정)
+
+    var peers: [PeerManager.Peer] { core.peers.peers }
+    var peerStatus: String { core.peers.statusMessage }
+    var pairingPassphrase: String { core.peers.passphrase }
+    var manualPeerAddress: String { core.peers.manualAddress }
+
+    func savePairing(passphrase: String, manualAddress: String) {
+        objectWillChange.send()
+        core.peers.savePairing(passphrase: passphrase, manualAddress: manualAddress)
     }
 
     // MARK: 사용자 조작
