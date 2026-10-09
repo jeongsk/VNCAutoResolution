@@ -48,7 +48,7 @@ public final class PeerManager {
 
     /// 피어 목록/상태가 바뀔 때마다 불린다.
     public var onChange: (() -> Void)?
-    /// hello 이후 피어가 보낸 `input`/`session` 메시지. 입력 동기화(#5)가 구독한다.
+    /// hello 이후 피어가 보낸 `input`/`session`/`display` 메시지. 코어(AppCore)가 구독한다.
     public var onMessage: ((PeerMessage, Peer) -> Void)?
 
     private let transport: PeerTransporting
@@ -175,7 +175,7 @@ public final class PeerManager {
             }
             register(connection, deviceID: peerID, name: name, route: connection.outboundRoute ?? route ?? .manual)
 
-        case .input, .session:
+        case .input, .session, .display:
             // hello 전이거나, hello에서 밝힌 deviceID와 다른 메시지(위장·중계)는 무시한다.
             guard let peer = connection.peer, peer.deviceID == message.deviceID else {
                 ignoredMessageCount += 1

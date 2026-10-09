@@ -23,6 +23,10 @@ public final class InputSyncController {
     public private(set) var lastMessage = ""
     /// 상태가 바뀔 때마다 불린다.
     public var onChange: (() -> Void)?
+    /// 로컬 세션이 없다가 시작됐을 때 불린다. (클라이언트 화면 정보 전송용)
+    public var onLocalSessionStarted: (() -> Void)?
+    /// 새 피어가 붙었을 때 불린다. (로컬 세션 여부와 무관)
+    public var onPeerJoined: (() -> Void)?
 
     private let input: InputSourcing
     private let viewers: ViewerAppDetecting
@@ -80,6 +84,15 @@ public final class InputSyncController {
 
     /// 로컬 VNC 세션이나 뷰어 앱이 있는 상태.
     public var isLocalSessionActive: Bool { localVNC || localViewer }
+
+    /// 뷰어 앱이 실행 중인 쪽(클라이언트)인지. 세션 시작 상태와 화면 정보를 먼저 보내는 쪽이다.
+    public var isViewerSide: Bool { localViewer }
+
+    /// 이 피어가 유효시간 안에 세션 활성 신호를 보냈는지.
+    public func isSessionActive(peer deviceID: String) -> Bool {
+        guard let last = peerSessions[deviceID] else { return false }
+        return clock.now.timeIntervalSince(last) < sessionTTL
+    }
 
     /// 유효시간 안에 세션 활성 신호를 보낸 피어가 있는지.
     public var isPeerSessionActive: Bool {
@@ -141,6 +154,7 @@ public final class InputSyncController {
             announceSession(active: true)
             sendCurrentStateIfInitiator()
         }
+        if joined { onPeerJoined?() }
     }
 
     /// 피어가 보낸 메시지(hello 이후 검증된 것)를 처리한다.
@@ -152,8 +166,8 @@ public final class InputSyncController {
         case .input(_, let sourceID, let isKorean):
             applyRemote(id: sourceID, isKorean: isKorean)
             onChange?()
-        case .hello:
-            break
+        case .hello, .display:
+            break   // display는 코어(ClientDisplayController)가 처리한다.
         }
     }
 
@@ -176,7 +190,10 @@ public final class InputSyncController {
         defer { onChange?() }
         guard after != before else { return }
         announceSession(active: after)
-        if after { sendCurrentStateIfInitiator() }
+        if after {
+            sendCurrentStateIfInitiator()
+            onLocalSessionStarted?()
+        }
     }
 
     private func announceSession(active: Bool) {

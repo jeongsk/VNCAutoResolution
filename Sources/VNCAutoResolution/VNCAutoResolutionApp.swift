@@ -33,6 +33,9 @@ struct MenuContent: View {
             Text("VNC 접속 없음")
         }
         Text("현재 해상도: \(currentLabel)")
+        if let display = state.clientDisplay {
+            Text("클라이언트 화면: \(display.sizeLabel)")
+        }
         if !state.lastMessage.isEmpty {
             Text(state.lastMessage)
         }

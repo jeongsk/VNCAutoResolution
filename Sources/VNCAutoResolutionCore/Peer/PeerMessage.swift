@@ -5,26 +5,30 @@ import Foundation
 ///     hello   { deviceID, name, protocolVersion }   (+ 선택: route)
 ///     input   { deviceID, sourceID, isKorean }
 ///     session { deviceID, active }
+///     display { deviceID, width, height, scale }   (클라이언트 메인 화면: 포인트 크기 + 배율)
 ///
-/// `input`과 `session`은 입력 동기화(#5)에서 쓴다. 이 티켓에서는 정의와 전달만 한다.
+/// `input`과 `session`은 입력 동기화(#5), `display`는 클라이언트 화면 정보(#8)에서 쓴다.
+/// 모르는 `type`은 디코딩 실패(nil)로 처리되고, `PeerManager`가 그 줄만 버리고 연결은 유지한다.
 public enum PeerMessage: Equatable, Sendable {
     /// `route`: 보낸 쪽이 이 연결을 어떤 경로로 걸었는지(걸린 쪽의 메뉴 표시용). 선택 필드.
     case hello(deviceID: String, name: String, protocolVersion: Int, route: PeerRoute?)
     case input(deviceID: String, sourceID: String, isKorean: Bool)
     case session(deviceID: String, active: Bool)
+    /// 보낸 쪽(뷰어 앱이 실행 중인 클라이언트)의 메인 화면. width·height는 포인트, scale은 배율.
+    case display(deviceID: String, width: Int, height: Int, scale: Double)
 
     public static let protocolVersion = 1
 
     public var deviceID: String {
         switch self {
-        case .hello(let id, _, _, _), .input(let id, _, _), .session(let id, _): return id
+        case .hello(let id, _, _, _), .input(let id, _, _), .session(let id, _), .display(let id, _, _, _): return id
         }
     }
 }
 
 extension PeerMessage: Codable {
     private enum CodingKeys: String, CodingKey {
-        case type, deviceID, name, protocolVersion, route, sourceID, isKorean, active
+        case type, deviceID, name, protocolVersion, route, sourceID, isKorean, active, width, height, scale
     }
 
     public init(from decoder: Decoder) throws {
@@ -46,6 +50,13 @@ extension PeerMessage: Codable {
             )
         case "session":
             self = .session(deviceID: deviceID, active: try c.decode(Bool.self, forKey: .active))
+        case "display":
+            self = .display(
+                deviceID: deviceID,
+                width: try c.decode(Int.self, forKey: .width),
+                height: try c.decode(Int.self, forKey: .height),
+                scale: try c.decode(Double.self, forKey: .scale)
+            )
         case let other:
             throw DecodingError.dataCorruptedError(
                 forKey: .type, in: c, debugDescription: "알 수 없는 메시지 종류: \(other)")
@@ -68,6 +79,11 @@ extension PeerMessage: Codable {
         case .session(_, let active):
             try c.encode("session", forKey: .type)
             try c.encode(active, forKey: .active)
+        case .display(_, let width, let height, let scale):
+            try c.encode("display", forKey: .type)
+            try c.encode(width, forKey: .width)
+            try c.encode(height, forKey: .height)
+            try c.encode(scale, forKey: .scale)
         }
     }
 }

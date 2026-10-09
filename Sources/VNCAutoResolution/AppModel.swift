@@ -21,7 +21,8 @@ final class AppModel: ObservableObject {
         passphraseStore: PassphraseStoring = KeychainPassphraseStore(),
         inputSource: CarbonInputSource = CarbonInputSource(),
         viewerApps: WorkspaceViewerApps = WorkspaceViewerApps(),
-        inputSyncSettings: InputSyncSettingsStoring = UserDefaultsInputSyncSettings()
+        inputSyncSettings: InputSyncSettingsStoring = UserDefaultsInputSyncSettings(),
+        screen: ScreenReading = MainScreenReader()
     ) {
         self.detector = detector
         // 피어 전송: Bonjour 서비스 이름은 deviceID(기기마다 유일, 사전순 비교로 연결 주체 결정).
@@ -30,7 +31,8 @@ final class AppModel: ObservableObject {
             vnc: detector, display: display, settings: settings, clock: clock,
             peerTransport: transport, peerSettings: peerSettings, passphraseStore: passphraseStore,
             deviceName: Host.current().localizedName ?? "Mac",
-            inputSource: inputSource, viewerApps: viewerApps, inputSyncSettings: inputSyncSettings)
+            inputSource: inputSource, viewerApps: viewerApps, inputSyncSettings: inputSyncSettings,
+            screen: screen)
         launchAtLogin = LoginItem.isEnabled
         // 모니터·더미 플러그 연결/해제 등 디스플레이 구성 변경 시 해상도 목록을 갱신한다.
         NotificationCenter.default.addObserver(
@@ -107,6 +109,10 @@ final class AppModel: ObservableObject {
     var currentInput: InputState? { core.inputSync.currentInput }
     var inputSyncMessage: String { core.inputSync.lastMessage }
 
+    // MARK: 클라이언트 화면 (호스트가 피어에게서 받은 것)
+
+    var clientDisplay: ClientDisplay? { core.clientDisplay }
+
     var inputSyncEnabled: Bool {
         get { core.inputSync.enabled }
         set { objectWillChange.send(); core.inputSync.enabled = newValue }
@@ -132,6 +138,7 @@ final class AppModel: ObservableObject {
     private func displayConfigurationChanged() {
         objectWillChange.send()
         core.resolution.displayConfigurationChanged()
+        core.screenConfigurationChanged()   // 클라이언트(뷰어 쪽)면 새 화면 크기를 호스트에 보낸다.
     }
 
     func setLaunchAtLogin(_ on: Bool) {
