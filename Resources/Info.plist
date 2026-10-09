@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.jeongsk.VNCAutoResolution</string>
+    <key>CFBundleName</key>
+    <string>VNCAutoResolution</string>
+    <key>CFBundleDisplayName</key>
+    <string>VNCAutoResolution</string>
+    <key>CFBundleExecutable</key>
+    <string>VNCAutoResolution</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>같은 네트워크에 있는 다른 Mac과 한/영 입력 상태를 동기화하기 위해 로컬 네트워크 접근이 필요합니다.</string>
+    <!-- 자리만 확보한 값. 서비스 타입은 피어 전송 티켓(#4)에서 확정한다. -->
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_vncautores._tcp</string>
+    </array>
+</dict>
+</plist>

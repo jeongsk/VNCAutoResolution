@@ -1,0 +1,76 @@
+import Foundation
+import VNCAutoResolutionCore
+
+/// UI용 얇은 어댑터: 코어의 상태를 SwiftUI에 보여 주고 사용자 조작을 코어로 넘긴다.
+@MainActor
+final class AppModel: ObservableObject {
+    private let core: AppCore
+    private let detector: VNCDetecting
+    private let pollInterval: Duration = .seconds(2)
+    private var loginMessage: String?
+
+    @Published private(set) var launchAtLogin: Bool
+
+    init(
+        detector: VNCDetecting = NetstatVNCDetector(),
+        display: DisplayControlling = CoreGraphicsDisplay(),
+        settings: SettingsStoring = UserDefaultsSettingsStore(),
+        clock: Clock = SystemClock()
+    ) {
+        self.detector = detector
+        core = AppCore(vnc: detector, display: display, settings: settings, clock: clock)
+        launchAtLogin = LoginItem.isEnabled
+        Task { await pollLoop() }
+    }
+
+    private func pollLoop() async {
+        while !Task.isCancelled {
+            let detector = self.detector
+            let found = await Task.detached { detector.activeClients() }.value
+            objectWillChange.send()
+            core.handle(clients: found)
+            try? await Task.sleep(for: pollInterval)
+        }
+    }
+
+    // MARK: 코어 상태 (읽기 전용)
+
+    var clients: [String] { core.resolution.clients }
+    var options: [ResolutionOption] { core.resolution.options }
+    var currentID: String? { core.resolution.currentID }
+    var isConnected: Bool { core.resolution.isConnected }
+    var hasOriginal: Bool { core.resolution.hasOriginal }
+    var lastMessage: String { loginMessage ?? core.resolution.lastMessage }
+
+    var enabled: Bool {
+        get { core.resolution.enabled }
+        set { objectWillChange.send(); core.resolution.enabled = newValue }
+    }
+
+    var targetID: String {
+        get { core.resolution.targetID }
+        set { objectWillChange.send(); core.resolution.targetID = newValue }
+    }
+
+    // MARK: 사용자 조작
+
+    func applyTargetNow() {
+        objectWillChange.send()
+        core.resolution.applyTargetNow()
+    }
+
+    func restoreOriginal() {
+        objectWillChange.send()
+        core.resolution.restoreOriginal()
+    }
+
+    func setLaunchAtLogin(_ on: Bool) {
+        do {
+            try LoginItem.set(on)
+            loginMessage = nil
+        } catch {
+            loginMessage = "로그인 항목 설정 실패: \(error.localizedDescription)"
+        }
+        launchAtLogin = LoginItem.isEnabled
+    }
+}

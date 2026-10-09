@@ -1,8 +1,9 @@
 import SwiftUI
+import VNCAutoResolutionCore
 
 @main
 struct VNCAutoResolutionApp: App {
-    @StateObject private var state = AppState()
+    @StateObject private var state = AppModel()
 
     var body: some Scene {
         MenuBarExtra {
@@ -14,7 +15,7 @@ struct VNCAutoResolutionApp: App {
 }
 
 struct MenuContent: View {
-    @ObservedObject var state: AppState
+    @ObservedObject var state: AppModel
 
     private var currentLabel: String {
         state.options.first { $0.id == state.currentID }?.label ?? state.currentID ?? "알 수 없음"
@@ -47,7 +48,10 @@ struct MenuContent: View {
 
         Divider()
 
-        Toggle("로그인 시 실행", isOn: $state.launchAtLogin)
+        Toggle("로그인 시 실행", isOn: Binding(
+            get: { state.launchAtLogin },
+            set: { state.setLaunchAtLogin($0) }
+        ))
         Button("종료") { NSApplication.shared.terminate(nil) }
             .keyboardShortcut("q")
     }
