@@ -7,12 +7,15 @@ public final class AppCore {
     /// 클라이언트 화면 정보 송수신. 가상 디스플레이(#9)는 `clientDisplay`를 읽는다.
     public let clientDisplayController: ClientDisplayController
 
+    /// 클라이언트 화면 크기의 가상 디스플레이. 있는 동안 `resolution`은 멈춘다.
+    public let virtualDisplay: VirtualDisplayController
+
     /// 피어 목록·입력 동기화 상태가 바뀔 때마다 불린다. (UI 갱신용. `peers.onChange`는 코어가 쓴다.)
     public var onStateChange: (() -> Void)?
 
     /// 호스트가 알고 있는 클라이언트 화면(세션이 활성인 피어가 보낸 가장 최근 `display`). 없으면 nil.
     public var clientDisplay: ClientDisplay? { clientDisplayController.clientDisplay }
-    /// `clientDisplay`가 바뀔 때마다 불린다. (#9 가상 디스플레이용. 코어 내부는 이 클로저를 쓰지 않는다.)
+    /// `clientDisplay`가 바뀔 때마다 불린다. (가상 디스플레이 컨트롤러는 코어 안에서 따로 연결돼 있고, 이 클로저는 앱용이다.)
     public var onClientDisplayChange: (() -> Void)?
 
     private let vnc: VNCDetecting
@@ -29,10 +32,15 @@ public final class AppCore {
         inputSource: InputSourcing? = nil,
         viewerApps: ViewerAppDetecting? = nil,
         inputSyncSettings: InputSyncSettingsStoring? = nil,
-        screen: ScreenReading? = nil
+        screen: ScreenReading? = nil,
+        virtualDisplay: VirtualDisplayControlling? = nil,
+        virtualDisplaySettings: VirtualDisplaySettingsStoring? = nil
     ) {
         self.vnc = vnc
         self.resolution = ResolutionController(display: display, settings: settings, clock: clock)
+        self.virtualDisplay = VirtualDisplayController(
+            port: virtualDisplay ?? NullVirtualDisplay(),
+            settings: virtualDisplaySettings ?? InMemoryVirtualDisplaySettings(), clock: clock)
         let fallback = InMemoryPeerStores()
         self.peers = PeerManager(
             deviceName: deviceName, transport: peerTransport,
@@ -42,6 +50,18 @@ public final class AppCore {
             settings: inputSyncSettings ?? InMemoryInputSyncSettings(), peers: peers, clock: clock)
         self.clientDisplayController = ClientDisplayController(
             screen: screen ?? NullScreenReader(), peers: peers, inputSync: inputSync)
+
+        // 가상 디스플레이와 해상도 컨트롤러는 서로 배타적이다. 세션 판단은 해상도 컨트롤러의 것(디바운스 포함)을 같이 쓴다.
+        // 가상 디스플레이가 있는 동안 해상도 컨트롤러는 멈추고, 새 세션이 시작되면 가상 디스플레이가 먼저 자리를 잡는다.
+        let resolution = self.resolution
+        let virtualDisplay = self.virtualDisplay
+        virtualDisplay.session = { [unowned resolution] in resolution.isConnected }
+        virtualDisplay.clientDisplay = { [weak self] in self?.clientDisplay }
+        virtualDisplay.willCreate = { [unowned resolution] in resolution.yieldToVirtualDisplay() }
+        virtualDisplay.didRemove = { [unowned resolution] in resolution.virtualDisplayRemoved() }
+        virtualDisplay.onChange = { [weak self] in self?.onStateChange?() }
+        resolution.isSuspended = { [unowned virtualDisplay] in virtualDisplay.isActive }
+        resolution.onSessionStart = { [unowned virtualDisplay] in virtualDisplay.sync() }
 
         // 피어 메시지·목록 변화를 입력 동기화에 연결한다. 앱은 `onStateChange`로 UI 갱신만 받는다.
         let sync = inputSync
@@ -62,6 +82,7 @@ public final class AppCore {
         inputSync.onLocalSessionStarted = { display.sendIfViewer() }
         inputSync.onPeerJoined = { display.sendIfViewer() }
         clientDisplayController.onChange = { [weak self] in
+            self?.virtualDisplay.sync()   // 크기가 바뀌면 모드 변경, 사라지면 제거.
             self?.onClientDisplayChange?()
             self?.onStateChange?()
         }
@@ -80,6 +101,7 @@ public final class AppCore {
     /// 이미 읽어 온 VNC 클라이언트 목록을 처리한다. 앱은 블로킹 감지를 백그라운드에서 하고 이 메서드를 호출한다.
     public func handle(clients: [String]) {
         resolution.handle(clients: clients)
+        virtualDisplay.sync()
         inputSync.setLocalVNC(active: resolution.isConnected)
         inputSync.tick()
     }

@@ -27,6 +27,12 @@ public final class ResolutionController {
     /// 앱 시작 후 첫 폴링을 이미 처리했는지. (시작 시 복원 판단용)
     private var started = false
 
+    /// 가상 디스플레이(#9)가 있는 동안 true를 돌려준다. true인 동안은 적용·복원·재시도·디스플레이 변경 반영을 모두 하지 않는다.
+    /// (세션 상태 추적과 디바운스는 계속 한다. 가상 디스플레이 컨트롤러가 이 세션 판단을 그대로 쓴다.)
+    var isSuspended: () -> Bool = { false }
+    /// 새 세션이 시작됐을 때, 목표 해상도를 적용하기 전에 불린다. 가상 디스플레이가 먼저 자리를 잡을 기회를 준다.
+    var onSessionStart: (() -> Void)?
+
     private let display: DisplayControlling
     private let settings: SettingsStoring
     private let clock: Clock
@@ -72,9 +78,10 @@ public final class ResolutionController {
     /// 폴링 결과(현재 VNC 클라이언트 목록)를 처리한다.
     public func handle(clients found: [String]) {
         // 시작 시 복원: 저장된 원래 해상도가 있는데 세션이 없으면 바로 되돌리고 저장값을 지운다.
+        // (가상 디스플레이는 앱 시작 직후에는 없으므로 보통 여기서 멈추지 않는다.)
         if !started {
             started = true
-            if found.isEmpty && hasOriginal {
+            if found.isEmpty && hasOriginal && !isSuspended() {
                 restoreOriginal(reason: "시작 시 원래 해상도 복원")
             }
         }
@@ -90,13 +97,34 @@ public final class ResolutionController {
                 onDisconnect()
             }
         }
+        guard !isSuspended() else { return }
         processRetry()
         refreshDisplay()
     }
 
     /// 디스플레이 구성이 바뀌었을 때(모니터·더미 플러그 연결/해제) 앱 어댑터가 호출한다. 해상도 목록을 다시 읽는다.
+    /// 가상 디스플레이가 있는 동안은 무시한다. (화면 구성이 우리 가상 디스플레이 때문에 바뀐 것이다)
     public func displayConfigurationChanged() {
+        guard !isSuspended() else { return }
         refreshDisplay()
+    }
+
+    /// 가상 디스플레이를 만들기 직전에 부른다. 이미 적용해 둔 목표 해상도가 있으면 원래대로 되돌리고 재시도를 멈춘다.
+    func yieldToVirtualDisplay() {
+        pending = nil
+        restoreOriginal(reason: "가상 디스플레이로 전환 → 원래 해상도 복원")
+    }
+
+    /// 가상 디스플레이가 사라진 직후에 부른다. 목록을 다시 읽고, 세션이 아직 이어지고 있으면 목표 해상도로 대체한다.
+    /// 세션이 끝났는데 복원하지 못한 원래 해상도가 남아 있으면 복원한다.
+    func virtualDisplayRemoved() {
+        guard !isSuspended() else { return }
+        refreshDisplay()
+        if isConnected {
+            applyTargetForSession()
+        } else if hasOriginal {
+            restoreOriginal(reason: "접속 해제 → 원래 해상도 복원")
+        }
     }
 
     public func refreshDisplay() {
@@ -109,6 +137,7 @@ public final class ResolutionController {
     // MARK: 사용자 조작
 
     public func applyTargetNow() {
+        guard !isSuspended() else { report("가상 디스플레이 사용 중 — 해상도를 바꾸지 않음"); return }
         guard !targetID.isEmpty else { return }
         saveOriginalIfNeeded()
         if display.apply(id: targetID) {
@@ -121,6 +150,7 @@ public final class ResolutionController {
     }
 
     public func restoreOriginal(reason: String = "원래 해상도 복원") {
+        guard !isSuspended() else { report("가상 디스플레이 사용 중 — 해상도를 바꾸지 않음"); return }
         guard let original = settings.originalResolutionID else { return }
         if display.apply(id: original) {
             settings.originalResolutionID = nil
@@ -138,6 +168,13 @@ public final class ResolutionController {
 
     private func onConnect() {
         pending = nil
+        onSessionStart?()
+        applyTargetForSession()
+    }
+
+    /// 세션 중에 목표 해상도를 적용한다. 
+    private func applyTargetForSession() {
+        guard !isSuspended() else { return }
         guard enabled, !targetID.isEmpty else { return }
         saveOriginalIfNeeded()
         if display.apply(id: targetID) {
@@ -150,6 +187,8 @@ public final class ResolutionController {
 
     private func onDisconnect() {
         pending = nil
+        // 가상 디스플레이가 있으면 건드리지 않는다. 가상 디스플레이가 사라지면 `virtualDisplayRemoved()`가 복원한다.
+        guard !isSuspended() else { return }
         restoreOriginal(reason: "접속 해제 → 원래 해상도 복원")
     }
 
