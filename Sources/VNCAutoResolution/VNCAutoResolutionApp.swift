@@ -23,7 +23,8 @@ struct MenuContent: View {
     @ObservedObject var state: AppModel
 
     private var currentLabel: String {
-        state.options.first { $0.id == state.currentID }?.label ?? state.currentID ?? "알 수 없음"
+        CurrentResolutionLabel.text(
+            options: state.options, currentID: state.currentID, virtualDisplay: state.virtualDisplayStatus)
     }
 
     private var virtualDisplayActive: Bool {
