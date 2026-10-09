@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// 한/영 입력 소스 동기화. 로컬 입력 변경을 피어에 절대 상태로 보내고, 받은 상태를 적용한다.
 /// 에코 억제·세션 게이트·세션 신호 유지를 여기서 처리한다. (에코 억제 아이디어는 HangulSync에서 옮김)
@@ -18,6 +19,7 @@ public final class InputSyncController {
     /// 로컬 세션 신호 재전송 주기(초).
     public let sessionRefresh: TimeInterval
     /// 적용 직후 확인해 안 먹었을 때 재시도를 포함한 최대 시도 횟수.
+    static let log = Logger(subsystem: "com.jeongsk.VNCAutoResolution", category: "inputsync")
     public let maxApplyAttempts: Int
 
     public private(set) var lastMessage = ""
@@ -134,12 +136,22 @@ public final class InputSyncController {
     /// 로컬 입력 소스가 바뀌었다는 알림(TIS 분산 알림)을 받았을 때 부른다.
     public func localInputChanged() {
         defer { onChange?() }
-        guard let state = input.current else { return }
+        guard let state = input.current else { Self.log.debug("local: 현재 값 없음"); return }
         // 동기화 조건이 안 되면 보내지 않는다. 나중에 같은 ID로 돌아와도 보내도록 기억을 지운다.
-        guard syncAllowed else { lastKnownID = nil; return }
+        guard syncAllowed else {
+            Self.log.debug("local \(state.id, privacy: .public): 동기화 조건 아님")
+            lastKnownID = nil; return
+        }
         // 에코 억제: 방금 원격 상태로 적용한 ID와 같고 유효시간 안이면 전파하지 않는다.
-        if let applied, state.id == applied.id, clock.now < applied.until { return }
-        guard state.id != lastKnownID else { return }
+        if let applied, state.id == applied.id, clock.now < applied.until {
+            Self.log.debug("local \(state.id, privacy: .public): 에코 억제")
+            return
+        }
+        guard state.id != lastKnownID else {
+            Self.log.debug("local \(state.id, privacy: .public): 마지막 값과 같아 건너뜀")
+            return
+        }
+        Self.log.debug("local \(state.id, privacy: .public): 전송 (이전 \(self.lastKnownID ?? "nil", privacy: .public), applied \(self.applied?.id ?? "nil", privacy: .public))")
         applied = nil   // 다른 ID로 실제 전환 → 억제 해제
         lastKnownID = state.id
         peers.broadcast(.input(deviceID: peers.deviceID, sourceID: state.id, isKorean: state.isKorean))
@@ -205,27 +217,35 @@ public final class InputSyncController {
     /// 뷰어를 보는 쪽(클라이언트)은 항상 보내고, VNC만 있는 쪽(호스트)은 상대 세션 신호가 이미 있으면 보내지 않는다.
     private func sendCurrentStateIfInitiator() {
         guard syncAllowed, localViewer || !isPeerSessionActive, let state = input.current else { return }
+        Self.log.debug("initiator: 현재 상태 전송 \(state.id, privacy: .public)")
         lastKnownID = state.id
         applied = nil
         peers.broadcast(.input(deviceID: peers.deviceID, sourceID: state.id, isKorean: state.isKorean))
     }
 
     private func applyRemote(id: String, isKorean: Bool) {
-        guard syncAllowed else { return }
+        guard syncAllowed else { Self.log.debug("recv \(id, privacy: .public): 동기화 조건 아님"); return }
         guard let target = InputSourceSelector.select(id: id, isKorean: isKorean, from: input.available) else {
             lastMessage = "입력 소스 적용 실패: 맞는 입력 소스 없음"
             return
         }
         // 이미 같은 상태면 적용하지 않는다.
-        if input.current?.id == target.id { lastKnownID = target.id; return }
+        let before = input.current?.id
+        if before == target.id {
+            Self.log.debug("recv \(id, privacy: .public): 이미 같음(현재 \(before ?? "nil", privacy: .public)) 건너뜀")
+            lastKnownID = target.id; return
+        }
+        Self.log.debug("recv \(id, privacy: .public): 적용 \(target.id, privacy: .public) (현재 \(before ?? "nil", privacy: .public))")
 
         // 알림이 먼저 도착해도 에코로 걸러지도록, 적용 전에 억제를 건다.
         applied = (target.id, clock.now.addingTimeInterval(echoWindow))
         lastKnownID = target.id
         // TISSelectInputSource가 불안정해서 적용 직후 다시 확인하고, 안 먹었으면 재시도한다.
         for _ in 0..<max(1, maxApplyAttempts) {
-            _ = input.select(id: target.id)
-            if input.current?.id == target.id {
+            let ok = input.select(id: target.id)
+            let after = input.current?.id
+            Self.log.debug("recv \(id, privacy: .public): select=\(ok, privacy: .public) 확인 \(after ?? "nil", privacy: .public)")
+            if after == target.id {
                 lastMessage = ""
                 return
             }

@@ -1,5 +1,6 @@
 import Carbon
 import Foundation
+import os
 import VNCAutoResolutionCore
 
 /// 입력 소스 포트의 실제 구현: Carbon TIS. (조회·언어 판정은 HangulSync에서 옮김 — THIRD_PARTY_NOTICES.md 참고)
@@ -8,13 +9,18 @@ final class CarbonInputSource: InputSourcing {
     /// 로컬 입력 소스가 바뀌었을 때 불린다.
     var onChange: (() -> Void)?
     private var observer: NSObjectProtocol?
+    private var lastSelect: Date?
+    private static let log = Logger(subsystem: "com.jeongsk.VNCAutoResolution", category: "inputsync")
 
     init() {
         observer = DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String),
             object: nil, queue: .main
         ) { [weak self] _ in
-            self?.onChange?()
+            guard let self else { return }
+            let since = self.lastSelect.map { String(format: "%.0f", Date().timeIntervalSince($0) * 1000) } ?? "-"
+            Self.log.debug("TIS 알림: 읽은 값 \(self.current?.id ?? "nil", privacy: .public), 마지막 자체 선택 후 \(since, privacy: .public)ms")
+            self.onChange?()
         }
     }
 
@@ -34,6 +40,7 @@ final class CarbonInputSource: InputSourcing {
     func select(id: String) -> Bool {
         guard let source = Self.selectableSources().first(where: { Self.stringProperty($0, kTISPropertyInputSourceID) == id })
         else { return false }
+        lastSelect = Date()
         return TISSelectInputSource(source) == noErr
     }
 
