@@ -1,0 +1,8 @@
+.build/
+build/
+.DS_Store
+*.xcodeproj/xcuserdata/
+.swiftpm/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
