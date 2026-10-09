@@ -18,7 +18,10 @@ final class AppModel: ObservableObject {
         settings: SettingsStoring = UserDefaultsSettingsStore(),
         clock: Clock = SystemClock(),
         peerSettings: PeerSettingsStoring = UserDefaultsPeerSettings(),
-        passphraseStore: PassphraseStoring = KeychainPassphraseStore()
+        passphraseStore: PassphraseStoring = KeychainPassphraseStore(),
+        inputSource: CarbonInputSource = CarbonInputSource(),
+        viewerApps: WorkspaceViewerApps = WorkspaceViewerApps(),
+        inputSyncSettings: InputSyncSettingsStoring = UserDefaultsInputSyncSettings()
     ) {
         self.detector = detector
         // 피어 전송: Bonjour 서비스 이름은 deviceID(기기마다 유일, 사전순 비교로 연결 주체 결정).
@@ -26,7 +29,8 @@ final class AppModel: ObservableObject {
         core = AppCore(
             vnc: detector, display: display, settings: settings, clock: clock,
             peerTransport: transport, peerSettings: peerSettings, passphraseStore: passphraseStore,
-            deviceName: Host.current().localizedName ?? "Mac")
+            deviceName: Host.current().localizedName ?? "Mac",
+            inputSource: inputSource, viewerApps: viewerApps, inputSyncSettings: inputSyncSettings)
         launchAtLogin = LoginItem.isEnabled
         // 모니터·더미 플러그 연결/해제 등 디스플레이 구성 변경 시 해상도 목록을 갱신한다.
         NotificationCenter.default.addObserver(
@@ -35,13 +39,20 @@ final class AppModel: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.displayConfigurationChanged() }
         }
+        // 입력 소스 변경(TIS 분산 알림)과 뷰어 앱 실행/종료를 코어로 전달한다. (둘 다 메인 큐)
+        inputSource.onChange = { [weak self] in
+            MainActor.assumeIsolated { self?.core.inputSync.localInputChanged() }
+        }
+        viewerApps.onChange = { [weak self] in
+            MainActor.assumeIsolated { self?.core.inputSync.viewerAppsChanged() }
+        }
         startPeers(transport)
         Task { await pollLoop() }
     }
 
     /// 전송 이벤트(메인 큐로 전달됨)를 코어 피어 매니저로 연결하고 저장된 설정으로 시작한다.
     private func startPeers(_ transport: NetworkPeerTransport) {
-        core.peers.onChange = { [weak self] in self?.objectWillChange.send() }
+        core.onStateChange = { [weak self] in self?.objectWillChange.send() }
         transport.start { [weak self] event in
             MainActor.assumeIsolated { self?.core.peers.handle(event) }
         }
@@ -88,6 +99,22 @@ final class AppModel: ObservableObject {
     func savePairing(passphrase: String, manualAddress: String) {
         objectWillChange.send()
         core.peers.savePairing(passphrase: passphrase, manualAddress: manualAddress)
+    }
+
+    // MARK: 입력 동기화
+
+    var inputSyncStatus: InputSyncController.Status { core.inputSync.status }
+    var currentInput: InputState? { core.inputSync.currentInput }
+    var inputSyncMessage: String { core.inputSync.lastMessage }
+
+    var inputSyncEnabled: Bool {
+        get { core.inputSync.enabled }
+        set { objectWillChange.send(); core.inputSync.enabled = newValue }
+    }
+
+    var inputSyncOnlyDuringRemote: Bool {
+        get { core.inputSync.onlyDuringRemote }
+        set { objectWillChange.send(); core.inputSync.onlyDuringRemote = newValue }
     }
 
     // MARK: 사용자 조작
