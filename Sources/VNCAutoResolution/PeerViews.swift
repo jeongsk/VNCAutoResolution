@@ -49,8 +49,12 @@ struct PairingSettingsView: View {
                 .foregroundStyle(.secondary)
             HStack {
                 Spacer()
-                Button("저장") { state.savePairing(passphrase: passphrase, manualAddress: address) }
-                    .keyboardShortcut(.defaultAction)
+                Button("저장") {
+                    state.savePairing(passphrase: passphrase, manualAddress: address)
+                    // 저장했다는 피드백이 없으면 멈춘 것처럼 보이므로 창을 닫는다.
+                    NSApp.keyWindow?.close()
+                }
+                .keyboardShortcut(.defaultAction)
             }
         }
         .padding(20)
