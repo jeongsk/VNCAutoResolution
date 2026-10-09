@@ -2,30 +2,29 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleIdentifier</key>
-    <string>com.jeongsk.VNCAutoResolution</string>
-    <key>CFBundleName</key>
-    <string>VNCAutoResolution</string>
-    <key>CFBundleDisplayName</key>
-    <string>VNCAutoResolution</string>
-    <key>CFBundleExecutable</key>
-    <string>VNCAutoResolution</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
-    <key>CFBundleVersion</key>
-    <string>1</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>13.0</string>
-    <key>LSUIElement</key>
-    <true/>
-    <key>NSLocalNetworkUsageDescription</key>
-    <string>같은 네트워크에 있는 다른 Mac과 한/영 입력 상태를 동기화하기 위해 로컬 네트워크 접근이 필요합니다.</string>
-    <!-- Bonjour 서비스 타입. PeerDefaults.serviceType 과 같아야 한다(테스트가 검증). -->
-    <key>NSBonjourServices</key>
-    <array>
-        <string>_vncautores._tcp</string>
-    </array>
+	<key>CFBundleDisplayName</key>
+	<string>VNCAutoResolution</string>
+	<key>CFBundleExecutable</key>
+	<string>VNCAutoResolution</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.jeongsk.VNCAutoResolution</string>
+	<key>CFBundleName</key>
+	<string>VNCAutoResolution</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>2</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_vncautores._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>같은 네트워크에 있는 다른 Mac과 한/영 입력 상태를 동기화하기 위해 로컬 네트워크 접근이 필요합니다.</string>
 </dict>
 </plist>
