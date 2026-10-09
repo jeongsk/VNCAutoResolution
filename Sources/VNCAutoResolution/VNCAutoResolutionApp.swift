@@ -26,6 +26,19 @@ struct MenuContent: View {
         state.options.first { $0.id == state.currentID }?.label ?? state.currentID ?? "알 수 없음"
     }
 
+    private var virtualDisplayActive: Bool {
+        if case .active = state.virtualDisplayStatus { return true }
+        return false
+    }
+
+    private var virtualDisplayLabel: String {
+        switch state.virtualDisplayStatus {
+        case .unavailable: return "가상 디스플레이: 사용 불가"
+        case .standby: return "가상 디스플레이: 대기"
+        case .active(let width, let height): return "가상 디스플레이: 사용 중 \(width)×\(height)"
+        }
+    }
+
     var body: some View {
         if state.isConnected {
             Text("VNC 접속 중: \(state.clients.joined(separator: ", "))")
@@ -36,11 +49,21 @@ struct MenuContent: View {
         if let display = state.clientDisplay {
             Text("클라이언트 화면: \(display.sizeLabel)")
         }
+        Text(virtualDisplayLabel)
         if !state.lastMessage.isEmpty {
             Text(state.lastMessage)
         }
         if state.hasFewOptions {
             Text("선택할 수 있는 해상도가 적습니다. 모니터 없는 Mac이라면 더미 플러그나 가상 디스플레이 도구를 권장합니다.")
+        }
+
+        Divider()
+
+        Toggle("클라이언트 화면에 맞추기", isOn: $state.fitToClient)
+        Toggle("HiDPI 가상 디스플레이", isOn: $state.virtualDisplayHiDPI)
+            .disabled(!state.fitToClient)
+        if !state.virtualDisplayMessage.isEmpty {
+            Text(state.virtualDisplayMessage)
         }
 
         Divider()
@@ -53,9 +76,9 @@ struct MenuContent: View {
             }
         }
         Button("지금 적용해 보기") { state.applyTargetNow() }
-            .disabled(state.targetID.isEmpty)
+            .disabled(state.targetID.isEmpty || virtualDisplayActive)
         Button("원래 해상도로 복원") { state.restoreOriginal() }
-            .disabled(!state.hasOriginal)
+            .disabled(!state.hasOriginal || virtualDisplayActive)
 
         Divider()
 

@@ -22,7 +22,9 @@ final class AppModel: ObservableObject {
         inputSource: CarbonInputSource = CarbonInputSource(),
         viewerApps: WorkspaceViewerApps = WorkspaceViewerApps(),
         inputSyncSettings: InputSyncSettingsStoring = UserDefaultsInputSyncSettings(),
-        screen: ScreenReading = MainScreenReader()
+        screen: ScreenReading = MainScreenReader(),
+        virtualDisplay: VirtualDisplayControlling = RuntimeVirtualDisplay(),
+        virtualDisplaySettings: VirtualDisplaySettingsStoring = UserDefaultsVirtualDisplaySettings()
     ) {
         self.detector = detector
         // 피어 전송: Bonjour 서비스 이름은 deviceID(기기마다 유일, 사전순 비교로 연결 주체 결정).
@@ -32,7 +34,7 @@ final class AppModel: ObservableObject {
             peerTransport: transport, peerSettings: peerSettings, passphraseStore: passphraseStore,
             deviceName: Host.current().localizedName ?? "Mac",
             inputSource: inputSource, viewerApps: viewerApps, inputSyncSettings: inputSyncSettings,
-            screen: screen)
+            screen: screen, virtualDisplay: virtualDisplay, virtualDisplaySettings: virtualDisplaySettings)
         launchAtLogin = LoginItem.isEnabled
         // 모니터·더미 플러그 연결/해제 등 디스플레이 구성 변경 시 해상도 목록을 갱신한다.
         NotificationCenter.default.addObserver(
@@ -112,6 +114,21 @@ final class AppModel: ObservableObject {
     // MARK: 클라이언트 화면 (호스트가 피어에게서 받은 것)
 
     var clientDisplay: ClientDisplay? { core.clientDisplay }
+
+    // MARK: 가상 디스플레이
+
+    var virtualDisplayStatus: VirtualDisplayController.Status { core.virtualDisplay.status }
+    var virtualDisplayMessage: String { core.virtualDisplay.lastMessage }
+
+    var fitToClient: Bool {
+        get { core.virtualDisplay.fitToClient }
+        set { objectWillChange.send(); core.virtualDisplay.fitToClient = newValue }
+    }
+
+    var virtualDisplayHiDPI: Bool {
+        get { core.virtualDisplay.hiDPI }
+        set { objectWillChange.send(); core.virtualDisplay.hiDPI = newValue }
+    }
 
     var inputSyncEnabled: Bool {
         get { core.inputSync.enabled }
