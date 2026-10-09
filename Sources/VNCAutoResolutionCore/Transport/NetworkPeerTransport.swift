@@ -205,6 +205,8 @@ public final class NetworkPeerTransport: PeerTransporting, @unchecked Sendable {
                 guard let self, self.generation == generation else { return }
                 switch state {
                 case .ready:
+                    // 실패했다가 재시도로 열렸다면 남아 있는 실패 메시지를 지운다.
+                    if self.listenerAttempt > 0 { self.emit(.status("")) }
                     self.listenerAttempt = 0
                     if let p = l?.port?.rawValue {
                         self.eventQueue.async { self.onListening?(p) }

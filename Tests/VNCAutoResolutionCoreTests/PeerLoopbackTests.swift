@@ -76,6 +76,19 @@ final class PeerLoopbackTests: XCTestCase {
         return (server, try XCTUnwrap(server.port.with { $0 }))
     }
 
+    /// 포트가 점유돼 실패했다가 재시도로 열리면 "리스너 시작 실패" 메시지를 비운다 (#11).
+    func testListenerFailureStatusClearsAfterRetrySucceeds() throws {
+        let (blocker, port) = try makeServer(passphrase: "점유")
+        let node = Node(id: "ccc-node", name: "재시도 맥", passphrase: "암호", listenPort: port)
+        node.applyConfig()
+        XCTAssertTrue(wait { node.queue.sync { node.manager.statusMessage.hasPrefix("리스너 시작 실패") } },
+                      "포트 점유 중 실패 메시지가 나와야 함")
+        blocker.stop()
+        XCTAssertTrue(wait { node.port.with { $0 } == port }, "점유가 풀리면 재시도로 리스너가 열려야 함")
+        XCTAssertTrue(wait { node.queue.sync { node.manager.statusMessage.isEmpty } }, "성공 후 실패 메시지가 지워져야 함")
+        node.stop()
+    }
+
     func testSamePassphraseConnectsAndMessagesRoundTrip() throws {
         let (server, port) = try makeServer(passphrase: "공유 암호")
         defer { server.stop() }
