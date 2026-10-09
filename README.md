@@ -29,7 +29,7 @@ cd VNCAutoResolution
 ./build.sh
 ```
 
-`build/VNCAutoResolution.app`이 만들어집니다. universal(arm64 + x86_64) 빌드가 실패하면 현재 아키텍처로만 다시 빌드합니다. 앱은 ad-hoc 서명됩니다.
+`build/VNCAutoResolution.app`이 만들어집니다. universal(arm64 + x86_64) 빌드가 실패하면 현재 아키텍처로만 다시 빌드합니다. 키체인에 "Apple Development" 인증서가 있으면 그 인증서로 서명하고, 없으면 ad-hoc 서명합니다. 다른 인증서를 쓰려면 `SIGN_IDENTITY="인증서 이름" ./build.sh`로 지정하세요.
 
 `/Applications`에 복사해서 실행합니다.
 
@@ -59,7 +59,7 @@ xattr -dr com.apple.quarantine /Applications/VNCAutoResolution.app
 
 처음 실행하면 "로컬 네트워크에 있는 기기 찾기 및 연결" 권한을 묻습니다. 같은 공유기 안에서 상대 Mac을 자동으로 찾고 연결하는 데 필요하므로 **허용**하세요. 시스템 설정 > 개인정보 보호 및 보안 > 로컬 네트워크에서 나중에 바꿀 수 있습니다.
 
-> 이 권한은 앱의 코드 서명에 묶여 있습니다. ad-hoc 서명으로 **다시 빌드하면 서명이 바뀌어 권한을 다시 물을 수 있습니다.** 허용했는데도 상대를 찾지 못하면 시스템 설정에서 권한이 켜져 있는지 확인하세요.
+> 이 권한과 Keychain 접근 허용은 앱의 코드 서명에 묶여 있습니다. 고정 인증서로 서명하면 다시 빌드해도 유지되지만, ad-hoc 서명으로 **다시 빌드하면 서명이 바뀌어 권한을 다시 물을 수 있습니다.** 허용했는데도 상대를 찾지 못하면 시스템 설정에서 권한이 켜져 있는지 확인하세요.
 
 ### 방화벽
 

@@ -7,6 +7,11 @@ cd "$(dirname "$0")"
 NAME="VNCAutoResolution"
 APP="build/$NAME.app"
 
+# 서명 인증서: 고정 인증서로 서명해야 다시 빌드해도 Keychain·로컬 네트워크 권한을 다시 묻지 않는다.
+# SIGN_IDENTITY로 지정하거나, 없으면 키체인의 첫 "Apple Development" 인증서, 그것도 없으면 ad-hoc(-).
+SIGN_IDENTITY="${SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development/{print $2; exit}')}"
+SIGN_IDENTITY="${SIGN_IDENTITY:--}"
+
 echo "▸ 빌드 중 (arm64 + x86_64)..."
 if swift build -c release --arch arm64 --arch x86_64; then
     BIN_DIR=$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)
@@ -23,11 +28,12 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 # 입력 소스 전환 도우미 (#12)
 mkdir -p "$APP/Contents/Helpers"
 cp "$BIN_DIR/VNCInputSourceHelper" "$APP/Contents/Helpers/VNCInputSourceHelper"
-codesign --force --sign - "$APP/Contents/Helpers/VNCInputSourceHelper"
+codesign --force --sign "$SIGN_IDENTITY" "$APP/Contents/Helpers/VNCInputSourceHelper"
 
-# ad-hoc 서명 (로그인 항목 등록·로컬 네트워크 권한에 필요)
-codesign --force --sign - "$APP"
+# 서명 (로그인 항목 등록·로컬 네트워크 권한·Keychain 접근 허용이 서명에 묶인다)
+codesign --force --sign "$SIGN_IDENTITY" "$APP"
 
 echo ""
 echo "✅ 완료: $(pwd)/$APP"
 echo "   아키텍처: $(lipo -archs "$APP/Contents/MacOS/$NAME")"
+echo "   서명: $SIGN_IDENTITY"
