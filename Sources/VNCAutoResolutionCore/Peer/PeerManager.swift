@@ -1,0 +1,213 @@
+import Foundation
+
+/// 피어 레지스트리 + 프로토콜 처리. 전송 포트가 올려 주는 바이트를 메시지로 분리·검증하고,
+/// hello로 피어를 식별해 deviceID 기준으로 중복을 정리한다.
+///
+/// 스레드: 단일 스레드(또는 직렬 큐)에서만 쓴다. 앱에서는 메인 스레드.
+/// 전송 이벤트는 `handle(_:)`로 넘겨 준다(연결은 앱/테스트가 한다).
+public final class PeerManager {
+    /// hello까지 마친, 메시지를 주고받을 수 있는 피어.
+    public struct Peer: Equatable, Identifiable {
+        public let deviceID: String
+        public let name: String
+        public let route: PeerRoute
+        public var id: String { deviceID }
+    }
+
+    /// 비정상 피어 방어 한도.
+    public struct Limits {
+        public var maxMessageBytes = 4096
+        public var maxMessagesPerWindow = 200
+        public var window: TimeInterval = 1
+        public var maxNameLength = 100
+        public init() {}
+    }
+
+    private struct Connection {
+        let id: PeerConnectionID
+        let isOutbound: Bool
+        /// 우리가 건 연결이면 우리가 쓴 경로.
+        let outboundRoute: PeerRoute?
+        var framer: MessageFramer
+        var limiter: RateLimiter
+        var peer: Peer?
+    }
+
+    public let deviceID: String
+    public let deviceName: String
+
+    /// 연결된 피어 목록(이름순). 메뉴에 표시한다.
+    public var peers: [Peer] {
+        connections.values.compactMap(\.peer).sorted { ($0.name, $0.deviceID) < ($1.name, $1.deviceID) }
+    }
+
+    /// 전송 계층 상태/오류 문구. 비어 있으면 정상.
+    public private(set) var statusMessage = ""
+    /// 한도를 넘거나 형식이 틀려 무시한 메시지 수. (진단용)
+    public private(set) var ignoredMessageCount = 0
+
+    /// 피어 목록/상태가 바뀔 때마다 불린다.
+    public var onChange: (() -> Void)?
+    /// hello 이후 피어가 보낸 `input`/`session` 메시지. 입력 동기화(#5)가 구독한다.
+    public var onMessage: ((PeerMessage, Peer) -> Void)?
+
+    private let transport: PeerTransporting
+    private let settings: PeerSettingsStoring
+    private let secrets: PassphraseStoring
+    private let clock: Clock
+    private let limits: Limits
+    private var connections: [PeerConnectionID: Connection] = [:]
+
+    public init(
+        deviceName: String,
+        transport: PeerTransporting,
+        settings: PeerSettingsStoring,
+        secrets: PassphraseStoring,
+        clock: Clock,
+        limits: Limits = Limits()
+    ) {
+        self.deviceID = settings.deviceID
+        self.deviceName = deviceName
+        self.transport = transport
+        self.settings = settings
+        self.secrets = secrets
+        self.clock = clock
+        self.limits = limits
+    }
+
+    // MARK: 설정
+
+    public var passphrase: String { secrets.passphrase ?? "" }
+    public var manualAddress: String { settings.manualPeerAddress }
+
+    /// 저장된 설정을 전송 계층에 반영한다. 앱 시작 시 한 번 부른다.
+    public func applyStoredConfig() {
+        transport.updateConfig(PeerTransportConfig(
+            passphrase: passphrase,
+            manualAddress: manualAddress.isEmpty ? nil : manualAddress
+        ))
+    }
+
+    /// 설정 창에서 저장: 암호(Keychain)와 직접 연결 주소를 저장하고 전송 계층에 반영한다.
+    public func savePairing(passphrase: String, manualAddress: String) {
+        secrets.passphrase = passphrase.isEmpty ? nil : passphrase
+        settings.manualPeerAddress = manualAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        applyStoredConfig()
+    }
+
+    // MARK: 보내기
+
+    /// 연결된 모든 피어에게 보낸다.
+    public func broadcast(_ message: PeerMessage) {
+        let data = PeerCodec.encode(message)
+        for connection in connections.values where connection.peer != nil {
+            transport.send(data, to: connection.id)
+        }
+    }
+
+    // MARK: 전송 이벤트
+
+    public func handle(_ event: PeerTransportEvent) {
+        switch event {
+        case .connected(let id, let route, let isOutbound):
+            connections[id] = Connection(
+                id: id,
+                isOutbound: isOutbound,
+                outboundRoute: isOutbound ? route : nil,
+                framer: MessageFramer(maxLineLength: limits.maxMessageBytes),
+                limiter: RateLimiter(maxCount: limits.maxMessagesPerWindow, interval: limits.window)
+            )
+            transport.send(PeerCodec.encode(.hello(
+                deviceID: deviceID,
+                name: deviceName,
+                protocolVersion: PeerMessage.protocolVersion,
+                route: isOutbound ? route : nil
+            )), to: id)
+
+        case .received(let id, let data):
+            guard var connection = connections[id] else { return }
+            let lines = connection.framer.append(data)
+            connections[id] = connection
+            for line in lines {
+                // 위 처리 중 연결이 닫혔을 수 있다(중복/자기 자신 정리).
+                guard connections[id] != nil else { return }
+                guard connections[id]!.limiter.allow(at: clock.now) else {
+                    ignoredMessageCount += 1
+                    continue
+                }
+                guard let message = PeerCodec.decode(line) else {
+                    ignoredMessageCount += 1
+                    continue
+                }
+                handle(message, on: id)
+            }
+
+        case .disconnected(let id):
+            if let removed = connections.removeValue(forKey: id), removed.peer != nil {
+                onChange?()
+            }
+
+        case .status(let text):
+            statusMessage = text
+            onChange?()
+        }
+    }
+
+    // MARK: 메시지 처리
+
+    private func handle(_ message: PeerMessage, on id: PeerConnectionID) {
+        guard let connection = connections[id] else { return }
+
+        // 자기 deviceID가 담긴 메시지는 어떤 연결에서 오든 무시한다 (hello의 자기 연결은 아래에서 정리).
+        if message.deviceID == deviceID {
+            if case .hello = message, connection.peer == nil { drop(id) }
+            else { ignoredMessageCount += 1 }
+            return
+        }
+
+        switch message {
+        case .hello(let peerID, let name, let version, let route):
+            guard connection.peer == nil else { ignoredMessageCount += 1; return }
+            guard version == PeerMessage.protocolVersion,
+                  !peerID.isEmpty, !name.isEmpty, name.count <= limits.maxNameLength else {
+                drop(id)
+                return
+            }
+            register(connection, deviceID: peerID, name: name, route: connection.outboundRoute ?? route ?? .manual)
+
+        case .input, .session:
+            // hello 전이거나, hello에서 밝힌 deviceID와 다른 메시지(위장·중계)는 무시한다.
+            guard let peer = connection.peer, peer.deviceID == message.deviceID else {
+                ignoredMessageCount += 1
+                return
+            }
+            onMessage?(message, peer)
+        }
+    }
+
+    /// hello를 마친 연결을 피어로 등록한다. 같은 deviceID의 기존 연결이 있으면 하나만 남긴다.
+    private func register(_ connection: Connection, deviceID peerID: String, name: String, route: PeerRoute) {
+        if let existing = connections.values.first(where: { $0.peer?.deviceID == peerID && $0.id != connection.id }) {
+            // 양쪽이 같은 규칙으로 같은 연결을 남기도록, "deviceID가 작은 쪽이 건 연결"을 남긴다.
+            // 건 쪽이 같으면(재연결로 낡은 연결이 남은 경우) 새 연결을 남긴다.
+            let existingDialer = existing.isOutbound ? deviceID : peerID
+            let newDialer = connection.isOutbound ? deviceID : peerID
+            let keepNew = newDialer <= existingDialer
+            if keepNew {
+                drop(existing.id)
+            } else {
+                drop(connection.id)
+                return
+            }
+        }
+        connections[connection.id]?.peer = Peer(deviceID: peerID, name: name, route: route)
+        onChange?()
+    }
+
+    /// 연결을 정리하고 전송 계층에도 닫도록 요청한다.
+    private func drop(_ id: PeerConnectionID) {
+        let hadPeer = connections.removeValue(forKey: id)?.peer != nil
+        transport.close(id)
+        if hadPeer { onChange?() }
+    }
+}

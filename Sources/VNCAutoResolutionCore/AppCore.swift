@@ -2,6 +2,7 @@
 /// 새 기능(피어, 입력 동기화 등)은 별도 컴포넌트를 만들어 여기서 조립한다.
 public final class AppCore {
     public let resolution: ResolutionController
+    public let peers: PeerManager
 
     private let vnc: VNCDetecting
 
@@ -9,10 +10,18 @@ public final class AppCore {
         vnc: VNCDetecting,
         display: DisplayControlling,
         settings: SettingsStoring,
-        clock: Clock
+        clock: Clock,
+        peerTransport: PeerTransporting = NullPeerTransport(),
+        peerSettings: PeerSettingsStoring? = nil,
+        passphraseStore: PassphraseStoring? = nil,
+        deviceName: String = "Mac"
     ) {
         self.vnc = vnc
         self.resolution = ResolutionController(display: display, settings: settings, clock: clock)
+        let fallback = InMemoryPeerStores()
+        self.peers = PeerManager(
+            deviceName: deviceName, transport: peerTransport,
+            settings: peerSettings ?? fallback, secrets: passphraseStore ?? fallback, clock: clock)
     }
 
     /// 폴링 한 번: VNC 포트를 읽어 `handle(clients:)`로 넘긴다. (블로킹 호출 — 테스트에서 직접 호출)
