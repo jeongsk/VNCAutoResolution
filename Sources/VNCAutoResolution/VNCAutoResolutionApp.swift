@@ -35,7 +35,9 @@ struct MenuContent: View {
     private var virtualDisplayLabel: String {
         switch state.virtualDisplayStatus {
         case .unavailable: return "가상 디스플레이: 사용 불가"
-        case .standby: return "가상 디스플레이: 대기"
+        case .standby:
+            if state.isConnected, let matched = state.clientMatchedOption { return "모니터 모드로 맞춤: \(matched.label)" }
+            return "가상 디스플레이: 대기"
         case .active(let width, let height): return "가상 디스플레이: 사용 중 \(width)×\(height)"
         }
     }
@@ -61,7 +63,7 @@ struct MenuContent: View {
         Divider()
 
         Toggle("클라이언트 화면에 맞추기", isOn: $state.fitToClient)
-        Toggle("HiDPI 가상 디스플레이", isOn: $state.virtualDisplayHiDPI)
+        Toggle("HiDPI로 맞추기", isOn: $state.virtualDisplayHiDPI)
             .disabled(!state.fitToClient)
         if !state.virtualDisplayMessage.isEmpty {
             Text(state.virtualDisplayMessage)

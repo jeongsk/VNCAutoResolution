@@ -361,4 +361,86 @@ final class VirtualDisplayTests: XCTestCase {
         for _ in 0..<10 { clock.advance(by: core.virtualDisplay.retryInterval); core.tick() }
         XCTAssertEqual(vdPort.created.count, core.virtualDisplay.maxAttempts)
     }
+
+    // MARK: 실제 화면 모드로 맞추기 (#13)
+
+    private static let monitorHiDPI = ResolutionOption(width: 1504, height: 846, pixelWidth: 3008, pixelHeight: 1692)
+    private static let monitorOneX = ResolutionOption(width: 1440, height: 900, pixelWidth: 1440, pixelHeight: 900)
+    private static let monitorBigHiDPI = ResolutionOption(width: 1920, height: 1080, pixelWidth: 3840, pixelHeight: 2160)
+    private static let monitorTiny = ResolutionOption(width: 1024, height: 576, pixelWidth: 2048, pixelHeight: 1152)
+
+    /// 4K 모니터처럼 해상도가 많은 화면.
+    private func useMonitor() {
+        display.options = [Self.monitorBigHiDPI, FakeDisplay.hd, Self.monitorHiDPI, Self.monitorOneX, Self.monitorTiny]
+        display.current = Self.monitorBigHiDPI
+        core.resolution.refreshDisplay()
+    }
+
+    func testMonitorWithFittingModeUsesItInsteadOfVirtualDisplay() {
+        useMonitor()
+        vdSettings.virtualDisplayHiDPI = true
+        clientReports()
+        vncConnect()
+        XCTAssertEqual(vdPort.created, [])
+        XCTAssertEqual(display.current, Self.monitorHiDPI)
+        XCTAssertEqual(settings.originalResolutionID, Self.monitorBigHiDPI.id)
+    }
+
+    func testMonitorOneXPicksLargestFittingOneXMode() {
+        useMonitor()
+        clientReports()
+        vncConnect()
+        XCTAssertEqual(vdPort.created, [])
+        XCTAssertEqual(display.current, Self.monitorOneX)
+    }
+
+    func testMonitorModeRestoredOnDisconnect() {
+        useMonitor()
+        vdSettings.virtualDisplayHiDPI = true
+        clientReports()
+        vncConnect()
+        vncDisconnect()
+        XCTAssertEqual(display.current, Self.monitorBigHiDPI)
+        XCTAssertNil(settings.originalResolutionID)
+    }
+
+    func testClientInfoArrivingAfterSessionStartAppliesMonitorMode() {
+        useMonitor()
+        settings.autoChangeEnabled = false
+        vncConnect()
+        XCTAssertEqual(display.current, Self.monitorBigHiDPI)
+        clientReports()
+        XCTAssertEqual(display.current, Self.monitorOneX)
+        XCTAssertEqual(vdPort.created, [])
+    }
+
+    func testTogglingHiDPIOnMonitorSwitchesMode() {
+        useMonitor()
+        settings.autoChangeEnabled = false
+        clientReports()
+        vncConnect()
+        core.virtualDisplay.hiDPI = true
+        XCTAssertEqual(display.current, Self.monitorHiDPI)
+        core.virtualDisplay.fitToClient = false   // 맞출 것도 목표 해상도도 없으면 원래대로.
+        XCTAssertEqual(vdPort.created, [])
+        XCTAssertEqual(display.current, Self.monitorBigHiDPI)
+        XCTAssertNil(settings.originalResolutionID)
+    }
+
+    func testNoFittingMonitorModeFallsBackToVirtualDisplay() {
+        useMonitor()
+        clientReports(800, 600, 2)   // 들어가는 모드가 없거나 너무 작다.
+        vncConnect()
+        XCTAssertEqual(vdPort.created.count, 1)
+    }
+
+    func testMatcherIgnoresDisplaysWithFewModes() {
+        let client = ClientDisplay(deviceID: "a", width: 1512, height: 982, scale: 2)
+        XCTAssertNil(ClientModeMatcher.bestOption(for: client, hiDPI: true, in: [FakeDisplay.retina]))
+        XCTAssertEqual(
+            ClientModeMatcher.bestOption(
+                for: client, hiDPI: true,
+                in: [Self.monitorBigHiDPI, Self.monitorHiDPI, Self.monitorOneX, Self.monitorTiny, FakeDisplay.retina]),
+            FakeDisplay.retina)   // 1440×900이 1504×846보다 넓다.
+    }
 }

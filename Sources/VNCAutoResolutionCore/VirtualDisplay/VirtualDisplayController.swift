@@ -33,6 +33,10 @@ public final class VirtualDisplayController {
     var didRemove: (() -> Void)?
     /// 상태가 바뀔 때 불린다. (UI 갱신용)
     public var onChange: (() -> Void)?
+    /// 실제 화면에 클라이언트에 맞는 모드가 있는지. 있으면 새로 만들지 않는다. (해상도 컨트롤러가 그 모드로 바꾼다)
+    var physicalDisplayFits: () -> Bool = { false }
+    /// 맞추기·HiDPI 설정이 바뀐 직후. (해상도 컨트롤러가 맞출 모드를 다시 고른다)
+    var settingsChanged: (() -> Void)?
 
     public let retryInterval: TimeInterval
     public let maxAttempts: Int
@@ -71,12 +75,12 @@ public final class VirtualDisplayController {
 
     public var fitToClient: Bool {
         get { settings.fitToClientEnabled }
-        set { settings.fitToClientEnabled = newValue; resetAttempts(); sync() }
+        set { settings.fitToClientEnabled = newValue; resetAttempts(); sync(); settingsChanged?() }
     }
 
     public var hiDPI: Bool {
         get { settings.virtualDisplayHiDPI }
-        set { settings.virtualDisplayHiDPI = newValue; resetAttempts(); sync() }
+        set { settings.virtualDisplayHiDPI = newValue; resetAttempts(); sync(); settingsChanged?() }
     }
 
     // MARK: 동기화
@@ -108,7 +112,7 @@ public final class VirtualDisplayController {
         // 이미 만든 뒤 클라이언트 화면 정보만 사라진 경우(세션 신호 만료·피어 연결 끊김)는 마지막 모드를 유지한다.
         // 세션이 끝날 때 제거한다. 접속을 끊을 때마다 가상 디스플레이를 지웠다 목표 해상도를 적용했다 되돌리는 깜빡임을 막는다.
         guard let client = clientDisplay() else { return currentMode }
-        if currentMode == nil, port.hasHighPerformanceDisplay { return nil }
+        if currentMode == nil, port.hasHighPerformanceDisplay || physicalDisplayFits() { return nil }
         return VirtualDisplayMode(client: client, hiDPI: settings.virtualDisplayHiDPI)
     }
 

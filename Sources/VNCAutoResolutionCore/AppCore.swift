@@ -62,6 +62,10 @@ public final class AppCore {
         virtualDisplay.onChange = { [weak self] in self?.onStateChange?() }
         resolution.isSuspended = { [unowned virtualDisplay] in virtualDisplay.isActive }
         resolution.onSessionStart = { [unowned virtualDisplay] in virtualDisplay.sync() }
+        // 실제 화면에 클라이언트에 맞는 모드가 있으면 가상 디스플레이 대신 그 모드를 쓴다.
+        resolution.clientMatchID = { [weak self] in self?.clientMatchedOption?.id }
+        virtualDisplay.physicalDisplayFits = { [weak self] in self?.clientMatchedOption != nil }
+        virtualDisplay.settingsChanged = { [unowned resolution] in resolution.sessionTargetChanged() }
 
         // 피어 메시지·목록 변화를 입력 동기화에 연결한다. 앱은 `onStateChange`로 UI 갱신만 받는다.
         let sync = inputSync
@@ -83,9 +87,16 @@ public final class AppCore {
         inputSync.onPeerJoined = { display.sendIfViewer() }
         clientDisplayController.onChange = { [weak self] in
             self?.virtualDisplay.sync()   // 크기가 바뀌면 모드 변경, 사라지면 제거.
+            self?.resolution.sessionTargetChanged()   // 실제 화면 모드로 맞추는 경우.
             self?.onClientDisplayChange?()
             self?.onStateChange?()
         }
+    }
+
+    /// 실제 화면에서 클라이언트 화면에 맞춘 모드. 맞추기가 꺼졌거나 화면 정보가 없거나 맞는 모드가 없으면 nil.
+    public var clientMatchedOption: ResolutionOption? {
+        guard virtualDisplay.fitToClient, let client = clientDisplay else { return nil }
+        return ClientModeMatcher.bestOption(for: client, hiDPI: virtualDisplay.hiDPI, in: resolution.options)
     }
 
     /// 화면 구성(해상도 설정, 모니터 연결·해제)이 바뀌었을 때 앱이 부른다. 클라이언트면 새 화면 크기를 보낸다.

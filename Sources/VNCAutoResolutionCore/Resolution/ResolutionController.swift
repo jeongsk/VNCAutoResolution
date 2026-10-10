@@ -32,6 +32,8 @@ public final class ResolutionController {
     var isSuspended: () -> Bool = { false }
     /// 새 세션이 시작됐을 때, 목표 해상도를 적용하기 전에 불린다. 가상 디스플레이가 먼저 자리를 잡을 기회를 준다.
     var onSessionStart: (() -> Void)?
+    /// 세션 중 목표 해상도 대신 적용할 해상도 ID. (클라이언트 화면에 맞춘 실제 화면 모드, `ClientModeMatcher`) 없으면 nil.
+    var clientMatchID: () -> String? = { nil }
 
     private let display: DisplayControlling
     private let settings: SettingsStoring
@@ -71,6 +73,12 @@ public final class ResolutionController {
     public var targetID: String {
         get { settings.targetResolutionID }
         set { settings.targetResolutionID = newValue }
+    }
+
+    /// 세션 중에 적용할 해상도. 클라이언트에 맞춘 모드가 있으면 그것, 없으면 (켜져 있을 때) 목표 해상도.
+    private var sessionTargetID: String? {
+        if let id = clientMatchID() { return id }
+        return enabled && !targetID.isEmpty ? targetID : nil
     }
 
     // MARK: 이벤트
@@ -134,6 +142,17 @@ public final class ResolutionController {
         if id != currentID { currentID = id }
     }
 
+    /// 세션 중 적용할 해상도가 바뀌었을 수 있을 때(클라이언트 화면 정보·맞추기 설정 변경) 부른다.
+    /// 새 해상도를 적용하고, 적용할 것이 없어졌으면 원래 해상도로 되돌린다.
+    func sessionTargetChanged() {
+        guard !isSuspended(), isConnected else { return }
+        if sessionTargetID != nil {
+            applyTargetForSession()
+        } else if hasOriginal {
+            restoreOriginal(reason: "맞출 해상도 없음 → 원래 해상도 복원")
+        }
+    }
+
     // MARK: 사용자 조작
 
     public func applyTargetNow() {
@@ -175,10 +194,13 @@ public final class ResolutionController {
     /// 세션 중에 목표 해상도를 적용한다. 
     private func applyTargetForSession() {
         guard !isSuspended() else { return }
-        guard enabled, !targetID.isEmpty else { return }
+        guard let id = sessionTargetID else { return }
+        if display.currentOption()?.id == id, hasOriginal { return }
+        let matched = id == clientMatchID()
         saveOriginalIfNeeded()
-        if display.apply(id: targetID) {
-            report("접속 감지 → 해상도 변경")
+        if display.apply(id: id) {
+            pending = nil
+            report(matched ? "클라이언트 화면에 맞춤 → 해상도 변경" : "접속 감지 → 해상도 변경")
         } else {
             report("해상도 변경 실패 (잠긴 화면이거나 지원하지 않는 해상도일 수 있음) — \(Int(retryInterval))초 뒤 재시도")
             scheduleRetry(.apply)
@@ -203,7 +225,7 @@ public final class ResolutionController {
         guard let action = pending, clock.now >= nextRetryAt else { return }
         // 상황이 바뀌어 더는 의미 없는 재시도는 버린다.
         switch action {
-        case .apply where !(isConnected && enabled && !targetID.isEmpty): pending = nil; return
+        case .apply where !(isConnected && sessionTargetID != nil): pending = nil; return
         case .restore where isConnected || !hasOriginal: pending = nil; return
         default: break
         }
@@ -211,7 +233,7 @@ public final class ResolutionController {
         retryCount += 1
         refreshDisplay()
         let (id, name): (String, String) = action == .apply
-            ? (targetID, "해상도 변경") : (settings.originalResolutionID ?? "", "원래 해상도 복원")
+            ? (sessionTargetID ?? "", "해상도 변경") : (settings.originalResolutionID ?? "", "원래 해상도 복원")
         if display.apply(id: id) {
             pending = nil
             if action == .restore { settings.originalResolutionID = nil }
