@@ -119,6 +119,7 @@ final class AppModel: ObservableObject {
 
     var virtualDisplayStatus: VirtualDisplayController.Status { core.virtualDisplay.status }
     var virtualDisplayMessage: String { core.virtualDisplay.lastMessage }
+    var leftoverVirtualDisplays: Int { core.virtualDisplay.leftoverCount }
 
     /// 실제 화면(모니터)에서 클라이언트에 맞춘 모드. 있으면 가상 디스플레이 대신 이 모드를 쓴다.
     var clientMatchedOption: ResolutionOption? { core.clientMatchedOption }

@@ -40,6 +40,9 @@ public protocol VirtualDisplayControlling: AnyObject {
     var isActive: Bool { get }
     /// 지금 가상 디스플레이의 포인트 크기. (`CGDisplayBounds`로 읽는다. 없으면 nil)
     var activeSize: (width: Int, height: Int)? { get }
+    /// 이 앱이 예전에 만들었지만 시스템이 지우지 못하고 남은 가상 디스플레이 수. 지금 쓰는 것은 세지 않는다.
+    /// (헤드리스에서는 해제해도 남는다. 물리 모니터를 연결하면 정리된다 — #13)
+    var leftoverCount: Int { get }
     /// 가상 디스플레이를 만든다. 성공하면 true. 어떤 화면의 미러로도 만들지 않는다.
     func create(mode: VirtualDisplayMode) -> Bool
     /// 이미 있는 가상 디스플레이의 모드를 바꾼다. 성공하면 true.
@@ -54,6 +57,7 @@ final class NullVirtualDisplay: VirtualDisplayControlling {
     var hasHighPerformanceDisplay: Bool { false }
     var isActive: Bool { false }
     var activeSize: (width: Int, height: Int)? { nil }
+    var leftoverCount: Int { 0 }
     func create(mode: VirtualDisplayMode) -> Bool { false }
     func update(mode: VirtualDisplayMode) -> Bool { false }
     func remove() {}

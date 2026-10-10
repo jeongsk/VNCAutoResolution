@@ -73,6 +73,9 @@ public final class VirtualDisplayController {
         return .active(width: size.width, height: size.height)
     }
 
+    /// 정리되지 않고 남은 가상 디스플레이 수. (UI 경고용)
+    public var leftoverCount: Int { port.isAvailable ? port.leftoverCount : 0 }
+
     public var fitToClient: Bool {
         get { settings.fitToClientEnabled }
         set { settings.fitToClientEnabled = newValue; resetAttempts(); sync(); settingsChanged?() }

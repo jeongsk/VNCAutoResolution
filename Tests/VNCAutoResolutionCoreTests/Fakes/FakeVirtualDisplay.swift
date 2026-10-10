@@ -6,6 +6,7 @@ final class FakeVirtualDisplay: VirtualDisplayControlling {
     var hasHighPerformanceDisplay = false
     var createSucceeds = true
     var updateSucceeds = true
+    var leftoverCount = 0
     private(set) var isActive = false
     private(set) var mode: VirtualDisplayMode?
     private(set) var created: [VirtualDisplayMode] = []

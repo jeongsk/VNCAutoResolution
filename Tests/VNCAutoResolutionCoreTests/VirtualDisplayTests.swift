@@ -457,4 +457,18 @@ final class VirtualDisplayTests: XCTestCase {
         vncDisconnect()
         XCTAssertEqual(display.current, Self.monitorBigHiDPI)
     }
+
+    // MARK: 남은 가상 디스플레이 (#13)
+
+    func testLeftoverCountIsReportedFromPort() {
+        XCTAssertEqual(core.virtualDisplay.leftoverCount, 0)
+        vdPort.leftoverCount = 2
+        XCTAssertEqual(core.virtualDisplay.leftoverCount, 2)
+    }
+
+    func testLeftoverCountIsZeroWhenUnavailable() {
+        vdPort.leftoverCount = 2
+        vdPort.isAvailable = false
+        XCTAssertEqual(core.virtualDisplay.leftoverCount, 0)
+    }
 }

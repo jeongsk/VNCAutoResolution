@@ -21,6 +21,9 @@ final class RuntimeVirtualDisplay: VirtualDisplayControlling {
     /// 처음 만들 때 설명자에 넣는 최대 픽셀. 모드가 이보다 크면 모드 크기에 맞춘다.
     private static let defaultMaxPixels = (width: 3840, height: 2400)
     private static let refreshRate = 60.0
+    /// 이 앱이 만드는 가상 디스플레이의 제조사·제품 번호. 남은 화면을 가려낼 때도 쓴다.
+    private static let vendorID: UInt32 = 0x3A5
+    private static let productID: UInt32 = 0x5A1
 
     private let descriptorClass: NSObject.Type?
     private let displayClass: NSObject.Type?
@@ -72,6 +75,17 @@ final class RuntimeVirtualDisplay: VirtualDisplayControlling {
         return (Int(bounds.width.rounded()), Int(bounds.height.rounded()))
     }
 
+    /// 온라인 화면 중 이 앱의 제조사·제품 번호를 가졌지만 지금 들고 있는 것이 아닌 화면 수.
+    var leftoverCount: Int {
+        var ids = [CGDirectDisplayID](repeating: 0, count: 32)
+        var count: UInt32 = 0
+        guard CGGetOnlineDisplayList(UInt32(ids.count), &ids, &count) == .success else { return 0 }
+        let mine = displayID
+        return ids.prefix(Int(count)).filter {
+            $0 != mine && CGDisplayVendorNumber($0) == Self.vendorID && CGDisplayModelNumber($0) == Self.productID
+        }.count
+    }
+
     func create(mode: VirtualDisplayMode) -> Bool {
         guard display == nil, isAvailable, mode.width > 0, mode.height > 0,
               let descriptorClass, let displayClass else { return false }
@@ -83,8 +97,8 @@ final class RuntimeVirtualDisplay: VirtualDisplayControlling {
         descriptor.setValue(NSNumber(value: UInt32(maxWide)), forKey: "maxPixelsWide")
         descriptor.setValue(NSNumber(value: UInt32(maxHigh)), forKey: "maxPixelsHigh")
         descriptor.setValue(NSValue(size: CGSize(width: 300, height: 195)), forKey: "sizeInMillimeters")
-        descriptor.setValue(NSNumber(value: UInt32(0x5A1)), forKey: "productID")
-        descriptor.setValue(NSNumber(value: UInt32(0x3A5)), forKey: "vendorID")
+        descriptor.setValue(NSNumber(value: Self.productID), forKey: "productID")
+        descriptor.setValue(NSNumber(value: Self.vendorID), forKey: "vendorID")
         // macOS는 vendor·product·serial마다 마지막 모드를 기억한다. 1배율과 HiDPI가 서로의 기억을 덮지 않도록 나눈다.
         descriptor.setValue(NSNumber(value: UInt32(mode.hiDPI ? 2 : 1)), forKey: "serialNum")
         _ = descriptor.perform(NSSelectorFromString("setDispatchQueue:"), with: DispatchQueue.main)

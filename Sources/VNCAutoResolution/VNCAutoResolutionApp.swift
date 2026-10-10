@@ -53,6 +53,9 @@ struct MenuContent: View {
             Text("클라이언트 화면: \(display.sizeLabel)")
         }
         Text(virtualDisplayLabel)
+        if state.leftoverVirtualDisplays > 0 {
+            Text("정리되지 않은 가상 화면 \(state.leftoverVirtualDisplays)개가 남아 있습니다. 모니터를 연결하면 사라집니다.")
+        }
         if !state.lastMessage.isEmpty {
             Text(state.lastMessage)
         }
