@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/images/icon.png" width="128" alt="VNCAutoResolution"></p>
+
 # VNCAutoResolution
 
 **English** | [한국어](README.md)
