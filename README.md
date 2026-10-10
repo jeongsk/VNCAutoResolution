@@ -15,7 +15,7 @@
 
 <p align="center"><img src="docs/images/menu.png" width="317" alt="맥미니 메뉴바 메뉴: 맥북 화면에 맞춰 모니터를 1504×846 HiDPI로 바꾼 상태"></p>
 
-<p align="center"><a href="https://github.com/jeongsk/VNCAutoResolution/releases/download/v1.0.0/VNCAutoResolution-demo.mp4"><img src="docs/images/demo-poster.jpg" width="600" alt="데모 영상 보기"></a><br><a href="https://github.com/jeongsk/VNCAutoResolution/releases/download/v1.0.0/VNCAutoResolution-demo.mp4">▶ 데모 영상 (1분)</a>: 화면 맞춤, HiDPI 켜고 끄기, 한/영 입력 동기화</p>
+<p align="center"><a href="https://github.com/jeongsk/VNCAutoResolution/releases/download/v1.0.0/VNCAutoResolution-demo.mp4"><img src="docs/images/demo.gif" width="756" alt="데모: 화면 맞춤, HiDPI 켜고 끄기, 한/영 입력 동기화"></a><br><a href="https://github.com/jeongsk/VNCAutoResolution/releases/download/v1.0.0/VNCAutoResolution-demo.mp4">▶ 원본 영상 (mp4, 1분)</a></p>
 
 같은 앱을 두 Mac에 모두 설치합니다. 역할 설정은 없습니다.
 
