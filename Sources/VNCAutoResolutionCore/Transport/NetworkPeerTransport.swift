@@ -8,7 +8,8 @@ import Network
 /// 별도 타깃 없이 loopback 통합 테스트가 그대로 쓸 수 있다.
 ///
 /// - 고정 포트(기본 `PeerDefaults.port`)로 TLS-PSK 리스너를 연다. Bonjour 광고/탐색은 옵션.
-/// - 연결 거는 쪽: Bonjour는 서비스 이름이 사전순으로 작은 쪽, 직접 입력 주소는 입력한 쪽.
+/// - 연결 거는 쪽: Bonjour는 서비스 이름이 사전순으로 작은 쪽이 바로 건다. 큰 쪽도 `passiveDialDelay` 뒤에 건다.
+///   (한쪽만 상대를 볼 때도 연결되게 한다. 둘 다 이어지면 코어가 작은 쪽이 건 연결만 남긴다) 직접 입력 주소는 입력한 쪽.
 /// - 끊긴 연결은 백오프로 다시 건다.
 /// - 모든 가변 상태는 내부 직렬 큐에서만 만진다. 이벤트는 `eventQueue`로 전달한다.
 public final class NetworkPeerTransport: PeerTransporting, @unchecked Sendable {
@@ -19,17 +20,21 @@ public final class NetworkPeerTransport: PeerTransporting, @unchecked Sendable {
         /// Bonjour 광고·탐색 사용 여부. loopback 테스트는 끈다.
         public var enableBonjour: Bool
         public var backoff: Backoff
+        /// 서비스 이름이 큰 쪽이 Bonjour로 찾은 피어에 처음 연결을 걸기 전에 기다리는 시간(초).
+        public var passiveDialDelay: TimeInterval
 
         public init(
             port: UInt16 = PeerDefaults.port,
             serviceType: String = PeerDefaults.serviceType,
             enableBonjour: Bool = true,
-            backoff: Backoff = Backoff()
+            backoff: Backoff = Backoff(),
+            passiveDialDelay: TimeInterval = 10
         ) {
             self.port = port
             self.serviceType = serviceType
             self.enableBonjour = enableBonjour
             self.backoff = backoff
+            self.passiveDialDelay = passiveDialDelay
         }
     }
 
@@ -244,22 +249,30 @@ public final class NetworkPeerTransport: PeerTransporting, @unchecked Sendable {
         browser = b
     }
 
-    /// 탐색 결과 중 "내 서비스 이름이 상대보다 사전순으로 작은" 피어에만 연결을 건다.
+    /// 탐색 결과의 피어에 연결을 건다. 내 서비스 이름이 작으면 바로, 크면 `passiveDialDelay` 뒤에 건다.
     private func updateBonjourTargets(_ results: Set<NWBrowser.Result>) {
-        var wanted: [String: NWEndpoint] = [:]
+        var wanted: [String: (endpoint: NWEndpoint, passive: Bool)] = [:]
         for result in results {
-            guard case let .service(name, _, _, _) = result.endpoint,
-                  name != serviceName, serviceName < name else { continue }
-            wanted["bonjour-\(name)"] = result.endpoint
+            guard case let .service(name, _, _, _) = result.endpoint, name != serviceName else { continue }
+            wanted["bonjour-\(name)"] = (result.endpoint, serviceName > name)
         }
         for (key, target) in targets where target.route == .bonjour && wanted[key] == nil {
             target.retry?.cancel()
             targets[key] = nil
         }
-        for (key, endpoint) in wanted where targets[key] == nil {
-            let target = Target(key: key, route: .bonjour, endpoint: endpoint)
+        for (key, found) in wanted where targets[key] == nil {
+            let target = Target(key: key, route: .bonjour, endpoint: found.endpoint)
             targets[key] = target
-            dial(target)
+            if found.passive {
+                let work = DispatchWorkItem { [weak self, weak target] in
+                    guard let self, let target, self.targets[target.key] === target else { return }
+                    self.dial(target)
+                }
+                target.retry = work
+                queue.asyncAfter(deadline: .now() + options.passiveDialDelay, execute: work)
+            } else {
+                dial(target)
+            }
         }
     }
 

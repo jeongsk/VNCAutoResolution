@@ -187,21 +187,33 @@ public final class PeerManager {
 
     /// hello를 마친 연결을 피어로 등록한다. 같은 deviceID의 기존 연결이 있으면 하나만 남긴다.
     private func register(_ connection: Connection, deviceID peerID: String, name: String, route: PeerRoute) {
-        if let existing = connections.values.first(where: { $0.peer?.deviceID == peerID && $0.id != connection.id }) {
-            // 양쪽이 같은 규칙으로 같은 연결을 남기도록, "deviceID가 작은 쪽이 건 연결"을 남긴다.
-            // 건 쪽이 같으면(재연결로 낡은 연결이 남은 경우) 새 연결을 남긴다.
-            let existingDialer = existing.isOutbound ? deviceID : peerID
-            let newDialer = connection.isOutbound ? deviceID : peerID
-            let keepNew = newDialer <= existingDialer
-            if keepNew {
-                drop(existing.id)
-            } else {
-                drop(connection.id)
-                return
-            }
+        let peer = Peer(deviceID: peerID, name: name, route: route)
+        guard let existing = connections.values.first(where: { $0.peer?.deviceID == peerID && $0.id != connection.id }),
+              let existingPeer = existing.peer else {
+            connections[connection.id]?.peer = peer
+            onChange?()
+            return
         }
-        connections[connection.id]?.peer = Peer(deviceID: peerID, name: name, route: route)
-        onChange?()
+        guard Self.keepNew(
+            existingDialer: existing.isOutbound ? deviceID : peerID, existingRoute: existingPeer.route,
+            newDialer: connection.isOutbound ? deviceID : peerID, newRoute: route) else {
+            drop(connection.id)   // 등록 전이라 피어 목록은 그대로다.
+            return
+        }
+        // 새 연결을 먼저 등록하고 기존 연결을 닫는다. 피어가 목록에서 잠깐 사라지지 않게 한다.
+        connections[connection.id]?.peer = peer
+        drop(existing.id)
+    }
+
+    /// 같은 피어에 연결이 두 개일 때 새 연결을 남길지. 양쪽이 같은 규칙으로 같은 연결을 남기도록 정한다.
+    /// 1. "deviceID가 작은 쪽이 건 연결"을 남긴다.
+    /// 2. 건 쪽이 같고 경로가 다르면(Bonjour와 직접 입력 주소) Bonjour 연결을 남긴다.
+    ///    (새 연결을 남기면 밀려난 경로가 재연결할 때마다 서로 밀어내며 30초마다 끊긴다 — #14)
+    /// 3. 건 쪽도 경로도 같으면(재연결로 낡은 연결이 남은 경우) 새 연결을 남긴다.
+    static func keepNew(existingDialer: String, existingRoute: PeerRoute, newDialer: String, newRoute: PeerRoute) -> Bool {
+        if newDialer != existingDialer { return newDialer < existingDialer }
+        if newRoute != existingRoute { return newRoute == .bonjour }
+        return true
     }
 
     /// 연결을 정리하고 전송 계층에도 닫도록 요청한다.

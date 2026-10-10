@@ -126,6 +126,34 @@ final class PeerManagerTests: XCTestCase {
         XCTAssertEqual(transport.closed, [1])
     }
 
+    func testSameDialerDifferentRoutesKeepsBonjourRegardlessOfOrder() {
+        // 내가 Bonjour와 직접 주소로 둘 다 건 경우: 직접 주소 연결이 나중에 와도, 먼저 와도 Bonjour가 남는다. (#14)
+        manager.handle(.connected(1, route: .bonjour, isOutbound: true))
+        manager.handle(.received(1, hello("zzz")))
+        manager.handle(.connected(2, route: .manual, isOutbound: true))
+        manager.handle(.received(2, hello("zzz")))
+        XCTAssertEqual(transport.closed, [2])
+        XCTAssertEqual(manager.peers.map(\.route), [.bonjour])
+
+        manager.handle(.connected(3, route: .manual, isOutbound: false))
+        manager.handle(.received(3, hello("aaa", route: .manual)))
+        manager.handle(.connected(4, route: nil, isOutbound: false))
+        manager.handle(.received(4, hello("aaa", route: .bonjour)))
+        XCTAssertEqual(transport.closed, [2, 3])
+        XCTAssertEqual(manager.peers.first { $0.deviceID == "aaa" }?.route, .bonjour)
+    }
+
+    func testReplacingConnectionNeverEmptiesPeerList() {
+        var seen: [[String]] = []
+        manager.onChange = { [unowned self] in seen.append(self.manager.peers.map(\.deviceID)) }
+        manager.handle(.connected(1, route: nil, isOutbound: false))
+        manager.handle(.received(1, hello("aaa")))
+        manager.handle(.connected(2, route: nil, isOutbound: false))
+        manager.handle(.received(2, hello("aaa")))
+        XCTAssertEqual(transport.closed, [1])
+        XCTAssertEqual(seen, [["aaa"], ["aaa"]])
+    }
+
     // MARK: input / session 전달
 
     func testInputAndSessionAreDeliveredFromHelloedPeer() {
