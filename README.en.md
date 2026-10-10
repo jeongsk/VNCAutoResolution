@@ -17,6 +17,8 @@ A macOS menu bar app that removes two annoyances of connecting from a MacBook to
 
 <p align="center"><img src="docs/images/menu.png" width="317" alt="Mac mini menu bar menu: the monitor switched to 1504×846 HiDPI to fit the MacBook screen"></p>
 
+<p align="center"><a href="https://github.com/jeongsk/VNCAutoResolution/releases/download/v1.0.0/VNCAutoResolution-demo.mp4"><img src="docs/images/demo-poster.jpg" width="600" alt="Watch the demo video"></a><br><a href="https://github.com/jeongsk/VNCAutoResolution/releases/download/v1.0.0/VNCAutoResolution-demo.mp4">▶ Demo video (1 min)</a>: fitting the screen, toggling HiDPI, Korean/English input sync</p>
+
 Install the same app on both Macs. There is no role setting.
 
 | Role | Example | Features that run |
