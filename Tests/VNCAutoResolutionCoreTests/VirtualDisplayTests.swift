@@ -443,4 +443,18 @@ final class VirtualDisplayTests: XCTestCase {
                 in: [Self.monitorBigHiDPI, Self.monitorHiDPI, Self.monitorOneX, Self.monitorTiny, FakeDisplay.retina]),
             FakeDisplay.retina)   // 1440×900이 1504×846보다 넓다.
     }
+
+    func testMonitorModeKeptWhileClientInfoBrieflyDisappears() {
+        useMonitor()
+        vdSettings.virtualDisplayHiDPI = true
+        clientReports()
+        vncConnect()
+        clientSessionEnds()   // 피어 재연결 등으로 화면 정보가 잠깐 사라진다.
+        XCTAssertEqual(display.current, Self.monitorHiDPI)
+        XCTAssertEqual(display.applied, [Self.monitorHiDPI.id])
+        clientReports()
+        XCTAssertEqual(display.applied, [Self.monitorHiDPI.id])
+        vncDisconnect()
+        XCTAssertEqual(display.current, Self.monitorBigHiDPI)
+    }
 }

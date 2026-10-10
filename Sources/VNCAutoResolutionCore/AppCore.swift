@@ -19,6 +19,9 @@ public final class AppCore {
     public var onClientDisplayChange: (() -> Void)?
 
     private let vnc: VNCDetecting
+    /// 세션 중 마지막으로 받은 클라이언트 화면. 피어 재연결 등으로 화면 정보가 잠깐 사라져도 모니터 모드를 유지한다.
+    /// (가상 디스플레이가 마지막 모드를 유지하는 것과 같다) 세션이 끝나면 비운다.
+    private var lastClientDisplay: ClientDisplay?
 
     public init(
         vnc: VNCDetecting,
@@ -86,6 +89,7 @@ public final class AppCore {
         inputSync.onLocalSessionStarted = { display.sendIfViewer() }
         inputSync.onPeerJoined = { display.sendIfViewer() }
         clientDisplayController.onChange = { [weak self] in
+            if let client = self?.clientDisplay { self?.lastClientDisplay = client }
             self?.virtualDisplay.sync()   // 크기가 바뀌면 모드 변경, 사라지면 제거.
             self?.resolution.sessionTargetChanged()   // 실제 화면 모드로 맞추는 경우.
             self?.onClientDisplayChange?()
@@ -95,7 +99,8 @@ public final class AppCore {
 
     /// 실제 화면에서 클라이언트 화면에 맞춘 모드. 맞추기가 꺼졌거나 화면 정보가 없거나 맞는 모드가 없으면 nil.
     public var clientMatchedOption: ResolutionOption? {
-        guard virtualDisplay.fitToClient, let client = clientDisplay else { return nil }
+        guard virtualDisplay.fitToClient,
+              let client = clientDisplay ?? (resolution.isConnected ? lastClientDisplay : nil) else { return nil }
         return ClientModeMatcher.bestOption(for: client, hiDPI: virtualDisplay.hiDPI, in: resolution.options)
     }
 
@@ -112,6 +117,7 @@ public final class AppCore {
     /// 이미 읽어 온 VNC 클라이언트 목록을 처리한다. 앱은 블로킹 감지를 백그라운드에서 하고 이 메서드를 호출한다.
     public func handle(clients: [String]) {
         resolution.handle(clients: clients)
+        if !resolution.isConnected, clientDisplay == nil { lastClientDisplay = nil }
         virtualDisplay.sync()
         inputSync.setLocalVNC(active: resolution.isConnected)
         inputSync.tick()
