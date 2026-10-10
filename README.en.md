@@ -8,7 +8,7 @@ A macOS menu bar app that removes two annoyances of connecting from a MacBook to
 
 - **Automatic resolution change**: when a VNC connection comes in to the Mac mini, it switches to a target resolution you picked in advance, and restores the original resolution when the connection ends.
 - **Fit to client screen**: matches the screen size reported by the MacBook app. If a monitor is attached, it changes the monitor's resolution; if not, it sizes a virtual display to the MacBook's screen.
-- **HiDPI (Retina) scaling**: draws the same screen size at 2x pixels, so text looks sharp rather than blurry on the MacBook's Retina display. Example: a 1512×982 screen is drawn at 3024×1964 pixels. Because this increases the amount of data sent, you can turn it on and off in the menu.
+- **Sharp even in standard quality (HiDPI scale-up)**: connecting with Screen Sharing in standard quality (not High Performance mode) makes text look blurry on the MacBook's Retina display. On connect, the Mac mini's screen is automatically drawn at 2x pixels (HiDPI) to match the MacBook's scale, so it stays sharp in standard quality. Example: a 1512×982 screen is drawn at 3024×1964 pixels. Because this increases the amount of data sent, toggle it with **HiDPI로 맞추기** (Fit with HiDPI) in the menu.
 - **Korean/English input sync**: during a remote session, keeps the Korean/English input source of both Macs in sync in both directions. This prevents Korean text from being split into individual jamo.
 
 > License: [CC BY-NC-SA 4.0](LICENSE). You may use and modify it freely for personal and non-commercial purposes, but **commercial use is not allowed**, and if you distribute a modified version you must release the source under the same license. See [License](#license) below for details.
