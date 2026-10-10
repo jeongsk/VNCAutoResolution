@@ -19,11 +19,16 @@ public final class ResolutionController {
     /// 적용 실패 후 재시도 간격(초)과, 최초 시도 이후 재시도 최대 횟수.
     public let retryInterval: TimeInterval
     public let maxRetryAttempts: Int
+    /// 가상 디스플레이가 사라진 뒤 해상도를 바꾸기 전에 기다리는 시간(초).
+    /// 화면 구성이 바뀌면 macOS가 그 구성에 기억해 둔 모드를 다시 적용해 방금 바꾼 해상도를 덮어쓴다(#13 확인 중 발견).
+    public let settleDelay: TimeInterval
 
     private enum PendingAction { case apply, restore }
     private var pending: PendingAction?
     private var retryCount = 0
     private var nextRetryAt = Date.distantPast
+    /// 실패 재시도가 아니라 화면 구성이 자리 잡기를 기다린 첫 시도일 때 성공 메시지.
+    private var deferredReason: String?
     /// 앱 시작 후 첫 폴링을 이미 처리했는지. (시작 시 복원 판단용)
     private var started = false
 
@@ -45,7 +50,8 @@ public final class ResolutionController {
         clock: Clock,
         disconnectThreshold: Int = 2,
         retryInterval: TimeInterval = 10,
-        maxRetryAttempts: Int = 6
+        maxRetryAttempts: Int = 6,
+        settleDelay: TimeInterval = 3
     ) {
         self.display = display
         self.settings = settings
@@ -53,6 +59,7 @@ public final class ResolutionController {
         self.disconnectThreshold = disconnectThreshold
         self.retryInterval = retryInterval
         self.maxRetryAttempts = maxRetryAttempts
+        self.settleDelay = settleDelay
         refreshDisplay()
     }
 
@@ -125,13 +132,14 @@ public final class ResolutionController {
 
     /// 가상 디스플레이가 사라진 직후에 부른다. 목록을 다시 읽고, 세션이 아직 이어지고 있으면 목표 해상도로 대체한다.
     /// 세션이 끝났는데 복원하지 못한 원래 해상도가 남아 있으면 복원한다.
+    /// 바로 바꾸면 화면 구성 변경이 끝나며 macOS가 덮어쓰므로 `settleDelay` 뒤에 한다.
     func virtualDisplayRemoved() {
         guard !isSuspended() else { return }
         refreshDisplay()
-        if isConnected {
-            applyTargetForSession()
-        } else if hasOriginal {
-            restoreOriginal(reason: "접속 해제 → 원래 해상도 복원")
+        if isConnected, sessionTargetID != nil {
+            scheduleRetry(.apply, after: settleDelay, deferredReason: "가상 디스플레이 제거 → 해상도 변경")
+        } else if !isConnected, hasOriginal {
+            scheduleRetry(.restore, after: settleDelay, deferredReason: "접속 해제 → 원래 해상도 복원")
         }
     }
 
@@ -214,10 +222,11 @@ public final class ResolutionController {
         restoreOriginal(reason: "접속 해제 → 원래 해상도 복원")
     }
 
-    private func scheduleRetry(_ action: PendingAction) {
+    private func scheduleRetry(_ action: PendingAction, after delay: TimeInterval? = nil, deferredReason: String? = nil) {
         pending = action
         retryCount = 0
-        nextRetryAt = clock.now.addingTimeInterval(retryInterval)
+        nextRetryAt = clock.now.addingTimeInterval(delay ?? retryInterval)
+        self.deferredReason = deferredReason
     }
 
     /// 재시도 시각이 됐으면 해상도 목록을 다시 읽고 한 번 더 시도한다. 최대 횟수를 넘으면 멈춘다.
@@ -230,14 +239,17 @@ public final class ResolutionController {
         default: break
         }
 
-        retryCount += 1
+        let deferred = deferredReason
+        deferredReason = nil
+        if deferred == nil { retryCount += 1 }
         refreshDisplay()
         let (id, name): (String, String) = action == .apply
             ? (sessionTargetID ?? "", "해상도 변경") : (settings.originalResolutionID ?? "", "원래 해상도 복원")
+        if action == .apply { saveOriginalIfNeeded() }
         if display.apply(id: id) {
             pending = nil
             if action == .restore { settings.originalResolutionID = nil }
-            report("\(name) 성공 (재시도 \(retryCount)회)")
+            report(deferred ?? "\(name) 성공 (재시도 \(retryCount)회)")
         } else if retryCount >= maxRetryAttempts {
             pending = nil
             report("\(name) 실패 — 재시도 \(retryCount)회 후 중단")

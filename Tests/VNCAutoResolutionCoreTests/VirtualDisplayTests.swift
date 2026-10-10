@@ -316,10 +316,30 @@ final class VirtualDisplayTests: XCTestCase {
         XCTAssertTrue(core.virtualDisplay.isActive)
         XCTAssertNotNil(settings.originalResolutionID)
         display.applySucceeds = true
-        vncDisconnect()                    // 제거 후 남은 원래 해상도를 복원
+        vncDisconnect()                    // 제거 후 화면 구성이 자리 잡으면 남은 원래 해상도를 복원
         XCTAssertFalse(core.virtualDisplay.isActive)
+        clock.advance(by: 3); core.tick()
         XCTAssertEqual(display.current, FakeDisplay.hd)
         XCTAssertNil(settings.originalResolutionID)
+    }
+
+    /// 가상 디스플레이를 떼면 macOS가 화면 구성을 바꾸며 해상도를 덮어쓴다. 바로 복원하지 않고 잠시 뒤에 한다.
+    func testRestoreAfterVirtualDisplayRemovalWaitsForDisplaysToSettle() {
+        vncConnect()
+        display.applySucceeds = false
+        clientReports()
+        display.applySucceeds = true
+        let appliedBefore = display.applied.count
+        vncDisconnect()
+        XCTAssertFalse(core.virtualDisplay.isActive)
+        XCTAssertEqual(display.applied.count, appliedBefore, "제거 직후에는 바꾸지 않는다")
+        XCTAssertNotNil(settings.originalResolutionID)
+        clock.advance(by: 1); core.tick()
+        XCTAssertEqual(display.applied.count, appliedBefore)
+        clock.advance(by: 2); core.tick()
+        XCTAssertEqual(display.current, FakeDisplay.hd)
+        XCTAssertNil(settings.originalResolutionID)
+        XCTAssertEqual(core.resolution.lastMessage, "접속 해제 → 원래 해상도 복원")
     }
 
     // MARK: 클라이언트 화면 정보가 사라질 때
