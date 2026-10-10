@@ -25,7 +25,7 @@
 		<string>_vncautores._tcp</string>
 	</array>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2026 jeongsk. CC BY-NC-SA 4.0</string>
+	<string>Copyright © 2026 jeongsk. MIT License</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>같은 네트워크에 있는 다른 Mac과 한/영 입력 상태를 동기화하기 위해 로컬 네트워크 접근이 필요합니다.</string>
 </dict>

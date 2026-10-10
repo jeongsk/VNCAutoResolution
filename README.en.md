@@ -13,7 +13,7 @@ A macOS menu bar app that removes two annoyances of connecting from a MacBook to
 - **Sharp even in standard quality (HiDPI scale-up)**: connecting with Screen Sharing in standard quality (not High Performance mode) makes text look blurry on the MacBook's Retina display. On connect, the Mac mini's screen is automatically drawn at 2x pixels (HiDPI) to match the MacBook's scale, so it stays sharp in standard quality. Example: a 1512×982 screen is drawn at 3024×1964 pixels. Because this increases the amount of data sent, toggle it with **HiDPI로 맞추기** (Fit with HiDPI) in the menu.
 - **Korean/English input sync**: during a remote session, keeps the Korean/English input source of both Macs in sync in both directions. This prevents Korean text from being split into individual jamo.
 
-> License: [CC BY-NC-SA 4.0](LICENSE). You may use and modify it freely for personal and non-commercial purposes, but **commercial use is not allowed**, and if you distribute a modified version you must release the source under the same license. See [License](#license) below for details.
+> License: [MIT](LICENSE). You may use, modify, and distribute it freely for personal, work, or commercial purposes. See [License](#license) below for details.
 
 <p align="center"><img src="docs/images/menu.png" width="317" alt="Mac mini menu bar menu: the monitor switched to 1504×846 HiDPI to fit the MacBook screen"></p>
 
@@ -271,16 +271,10 @@ However, Apple's documentation says Dynamic Resolution is **for High Performance
 
 ## License
 
-This project is licensed under the [Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0)](https://creativecommons.org/licenses/by-nc-sa/4.0/). The full text is in [LICENSE](LICENSE).
+This project is licensed under the [MIT License](https://opensource.org/license/mit). The full text is in [LICENSE](LICENSE).
 
-| What you may do | Conditions |
-| --- | --- |
-| Use for personal and non-commercial purposes with no limit on count or period | **NonCommercial**: you may not use it for commercial purposes (paid sale, inclusion in paid products or services, distribution for company work, etc.). |
-| Copy, modify, and redistribute | **Attribution**: you must credit the original author and this repository link, the license, and whether changes were made. |
-| Publish modified versions (derivative works) | **ShareAlike**: modified versions must be distributed with source under the same license (CC BY-NC-SA 4.0). |
+You may use, copy, modify, redistribute, and sell it for any purpose, personal, work, or commercial. When distributing it, include the copyright notice and the license text. The software is provided "as is", without warranty of any kind.
 
-If you need commercial use, please inquire separately through a repository issue.
-
-Third-party code included in this project (HangulSync, DeskPad, MIT) remains under its own license, and the notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Because of the NonCommercial condition, this project is not "open source" by the OSI definition but a source-available project.
+Third-party code included in this project (HangulSync, DeskPad, MIT) remains under its own license, and the notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 The specs are in [docs/specs/0001-remote-mac-companion.md](docs/specs/0001-remote-mac-companion.md) and [docs/specs/0002-client-matched-virtual-display.md](docs/specs/0002-client-matched-virtual-display.md) (written in Korean).
