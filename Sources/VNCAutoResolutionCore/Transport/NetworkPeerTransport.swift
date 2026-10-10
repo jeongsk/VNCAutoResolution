@@ -10,7 +10,7 @@ import Network
 /// - 고정 포트(기본 `PeerDefaults.port`)로 TLS-PSK 리스너를 연다. Bonjour 광고/탐색은 옵션.
 /// - 연결 거는 쪽: Bonjour는 서비스 이름이 사전순으로 작은 쪽이 바로 건다. 큰 쪽도 `passiveDialDelay` 뒤에 건다.
 ///   (한쪽만 상대를 볼 때도 연결되게 한다. 둘 다 이어지면 코어가 작은 쪽이 건 연결만 남긴다) 직접 입력 주소는 입력한 쪽.
-/// - 끊긴 연결은 백오프로 다시 건다.
+/// - 끊긴 연결과 `dialTimeout` 안에 준비되지 않은 연결은 백오프로 다시 건다.
 /// - 모든 가변 상태는 내부 직렬 큐에서만 만진다. 이벤트는 `eventQueue`로 전달한다.
 public final class NetworkPeerTransport: PeerTransporting, @unchecked Sendable {
     public struct Options: Sendable {
@@ -22,19 +22,24 @@ public final class NetworkPeerTransport: PeerTransporting, @unchecked Sendable {
         public var backoff: Backoff
         /// 서비스 이름이 큰 쪽이 Bonjour로 찾은 피어에 처음 연결을 걸기 전에 기다리는 시간(초).
         public var passiveDialDelay: TimeInterval
+        /// 건 연결이 이 시간(초) 안에 준비되지 않으면 끊고 다시 건다.
+        /// TCP 연결 시간 제한은 Bonjour 이름 풀이나 TLS 핸드셰이크에서 멈춘 경우를 못 잡는다.
+        public var dialTimeout: TimeInterval
 
         public init(
             port: UInt16 = PeerDefaults.port,
             serviceType: String = PeerDefaults.serviceType,
             enableBonjour: Bool = true,
             backoff: Backoff = Backoff(),
-            passiveDialDelay: TimeInterval = 10
+            passiveDialDelay: TimeInterval = 10,
+            dialTimeout: TimeInterval = 15
         ) {
             self.port = port
             self.serviceType = serviceType
             self.enableBonjour = enableBonjour
             self.backoff = backoff
             self.passiveDialDelay = passiveDialDelay
+            self.dialTimeout = dialTimeout
         }
     }
 
@@ -306,6 +311,10 @@ public final class NetworkPeerTransport: PeerTransporting, @unchecked Sendable {
         let connection = NWConnection(to: target.endpoint, using: parameters(passphrase: passphrase))
         let live = adopt(connection, isOutbound: true, targetKey: target.key)
         target.liveID = live.id
+        queue.asyncAfter(deadline: .now() + options.dialTimeout) { [weak self, weak live] in
+            guard let self, let live, self.connections[live.id] === live, !live.announced else { return }
+            self.finish(live.id)
+        }
     }
 
     @discardableResult

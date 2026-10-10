@@ -1,4 +1,5 @@
 import XCTest
+import Network
 @testable import VNCAutoResolutionCore
 
 /// 테스트 안에서 여러 큐가 함께 쓰는 값 상자.
@@ -143,5 +144,33 @@ final class PeerLoopbackTests: XCTestCase {
         let (restarted, _) = try makeServer(passphrase: "공유 암호", listenPort: port)
         defer { restarted.stop() }
         XCTAssertTrue(wait { !client.peers.isEmpty && !restarted.peers.isEmpty }, "재연결 실패")
+    }
+
+    /// TLS 핸드셰이크(또는 Bonjour 이름 풀이)에서 멈춘 연결은 dialTimeout 뒤 끊고 다시 건다.
+    func testStalledDialIsRetriedAfterDialTimeout() throws {
+        // TCP만 받고 TLS 응답은 하지 않는 서버: 핸드셰이크가 끝나지 않는다.
+        let accepted = Locked<[NWConnection]>([])
+        let port = Locked<UInt16?>(nil)
+        let raw = try NWListener(using: .tcp, on: .any)
+        raw.newConnectionHandler = { c in
+            c.start(queue: .global())
+            accepted.with { $0.append(c) }
+        }
+        raw.stateUpdateHandler = { [weak raw] state in
+            if case .ready = state { port.with { $0 = raw?.port?.rawValue } }
+        }
+        raw.start(queue: .global())
+        defer { raw.cancel(); accepted.with { $0.forEach { $0.cancel() } } }
+        XCTAssertTrue(wait { port.with { $0 } != nil })
+        let p = try XCTUnwrap(port.with { $0 })
+
+        let transport = NetworkPeerTransport(
+            serviceName: "aaa-client", eventQueue: DispatchQueue(label: "test.stall"),
+            options: .init(port: 0, enableBonjour: false, backoff: Backoff(base: 0.1, max: 0.2), dialTimeout: 0.3))
+        defer { transport.stop() }
+        transport.start { _ in }
+        transport.updateConfig(PeerTransportConfig(passphrase: "공유 암호", manualAddress: "127.0.0.1:\(p)"))
+
+        XCTAssertTrue(wait { accepted.with { $0.count } >= 2 }, "멈춘 연결을 다시 걸지 않음")
     }
 }
