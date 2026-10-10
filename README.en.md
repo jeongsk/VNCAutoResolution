@@ -2,6 +2,8 @@
 
 **English** | [한국어](README.md)
 
+[![Test](https://github.com/jeongsk/VNCAutoResolution/actions/workflows/test.yml/badge.svg)](https://github.com/jeongsk/VNCAutoResolution/actions/workflows/test.yml)
+
 A macOS menu bar app that removes two annoyances of connecting from a MacBook to a Mac mini over Screen Sharing (VNC).
 
 > Note: the app's interface is currently Korean only. This README quotes menu items and messages in the original Korean, with an English gloss in parentheses.

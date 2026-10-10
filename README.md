@@ -2,6 +2,8 @@
 
 [English](README.en.md) | **한국어**
 
+[![Test](https://github.com/jeongsk/VNCAutoResolution/actions/workflows/test.yml/badge.svg)](https://github.com/jeongsk/VNCAutoResolution/actions/workflows/test.yml)
+
 맥북에서 화면 공유(VNC)로 맥미니에 접속할 때 생기는 두 가지 불편을 줄여 주는 macOS 메뉴바 앱입니다.
 
 - **해상도 자동 변경**: 맥미니에 VNC 접속이 들어오면 미리 골라 둔 목표 해상도로 바꾸고, 접속이 끝나면 원래 해상도로 되돌립니다.
