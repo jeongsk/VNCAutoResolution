@@ -25,6 +25,8 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp "$BIN_DIR/$NAME" "$APP/Contents/MacOS/$NAME"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+mkdir -p "$APP/Contents/Resources"
+cp LICENSE THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/"
 # 입력 소스 전환 도우미 (#12)
 mkdir -p "$APP/Contents/Helpers"
 cp "$BIN_DIR/VNCInputSourceHelper" "$APP/Contents/Helpers/VNCInputSourceHelper"

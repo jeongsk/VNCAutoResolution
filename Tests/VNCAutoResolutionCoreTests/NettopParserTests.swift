@@ -8,9 +8,9 @@ final class NettopParserTests: XCTestCase {
         ,state,
         screensharingd.2912,,
         tcp6 *.5900<->*.*,Listen,
-        tcp4 192.168.219.109:5900<->192.168.219.106:49953,Established,
+        tcp4 192.168.0.10:5900<->192.168.0.5:49953,Established,
         """
-        XCTAssertEqual(NettopParser.parse(out), ["192.168.219.106"])
+        XCTAssertEqual(NettopParser.parse(out), ["192.168.0.5"])
     }
 
     func testIPv6IncomingConnectionIsClient() {
