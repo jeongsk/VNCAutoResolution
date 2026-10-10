@@ -85,7 +85,8 @@ final class RuntimeVirtualDisplay: VirtualDisplayControlling {
         descriptor.setValue(NSValue(size: CGSize(width: 300, height: 195)), forKey: "sizeInMillimeters")
         descriptor.setValue(NSNumber(value: UInt32(0x5A1)), forKey: "productID")
         descriptor.setValue(NSNumber(value: UInt32(0x3A5)), forKey: "vendorID")
-        descriptor.setValue(NSNumber(value: UInt32(1)), forKey: "serialNum")
+        // macOS는 vendor·product·serial마다 마지막 모드를 기억한다. 1배율과 HiDPI가 서로의 기억을 덮지 않도록 나눈다.
+        descriptor.setValue(NSNumber(value: UInt32(mode.hiDPI ? 2 : 1)), forKey: "serialNum")
         _ = descriptor.perform(NSSelectorFromString("setDispatchQueue:"), with: DispatchQueue.main)
 
         // display = [[CGVirtualDisplay alloc] initWithDescriptor:descriptor]  (+1 소유를 그대로 넘겨받는다)
@@ -151,7 +152,10 @@ final class RuntimeVirtualDisplay: VirtualDisplayControlling {
     }
 
     /// `[[CGVirtualDisplayMode alloc] initWithWidth:height:refreshRate:]`
+    /// `hiDPI = 1`이면 이 크기를 포인트로 보고 픽셀은 2배로 만든다. 그래서 HiDPI면 포인트 크기를 넘긴다.
+    /// (픽셀 크기를 넘기면 4배 픽셀을 요구해 최대 픽셀을 넘고, macOS가 거부한 뒤 1배율로 만든다)
     private func makeMode(_ mode: VirtualDisplayMode) -> NSObject? {
+        let size = mode.pointSize
         guard let modeClass,
               let imp = Self.implementation(modeClass, "initWithWidth:height:refreshRate:"),
               let allocated = (modeClass as AnyObject).perform(NSSelectorFromString("alloc")) else { return nil }
@@ -159,7 +163,7 @@ final class RuntimeVirtualDisplay: VirtualDisplayControlling {
         let initFn = unsafeBitCast(imp, to: InitFn.self)
         guard let result = initFn(
             allocated.toOpaque(), NSSelectorFromString("initWithWidth:height:refreshRate:"),
-            UInt(mode.width), UInt(mode.height), Self.refreshRate) else { return nil }
+            UInt(size.width), UInt(size.height), Self.refreshRate) else { return nil }
         return Unmanaged<NSObject>.fromOpaque(result).takeRetainedValue()
     }
 

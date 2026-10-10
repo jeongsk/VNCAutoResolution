@@ -132,7 +132,9 @@ public final class VirtualDisplayController {
 
     private func changeMode(to mode: VirtualDisplayMode) {
         guard canAttempt(mode) else { return }
-        if port.update(mode: mode) {
+        // HiDPI 여부가 바뀌면 제자리 변경이 먹지 않으므로(macOS가 무시한다) 지우고 새로 만든다.
+        let sameKind = currentMode?.hiDPI == mode.hiDPI
+        if sameKind, port.update(mode: mode) {
             currentMode = mode
             resetAttempts()
             report("가상 디스플레이 모드 변경: \(describe(mode))")

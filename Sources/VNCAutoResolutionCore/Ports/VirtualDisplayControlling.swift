@@ -1,5 +1,6 @@
 /// 가상 디스플레이 모드. width·height는 픽셀 단위다.
-/// (1배율이면 포인트 크기 그대로, HiDPI면 포인트 × 배율. 계산은 `VirtualDisplayMode(client:hiDPI:)`.)
+/// (1배율이면 포인트 크기 그대로, HiDPI면 포인트 × 2. 계산은 `VirtualDisplayMode(client:hiDPI:)`.)
+/// 비공개 API(`CGVirtualDisplayMode`)는 HiDPI일 때 포인트 크기를 받으므로, 어댑터가 `pointSize`로 바꿔 넘긴다.
 public struct VirtualDisplayMode: Equatable, Sendable {
     public let width: Int
     public let height: Int
@@ -13,10 +14,10 @@ public struct VirtualDisplayMode: Equatable, Sendable {
 
     /// 클라이언트 화면(포인트 + 배율)에서 모드를 계산한다.
     /// HiDPI를 켜도 클라이언트 배율이 2 미만(1배율 화면)이면 HiDPI로 만들 이유가 없어 1배율로 만든다.
+    /// macOS의 HiDPI 배율은 항상 2라서, 클라이언트 배율이 3이어도 포인트 × 2로 만든다.
     public init(client: ClientDisplay, hiDPI: Bool) {
         if hiDPI, client.scale >= 2 {
-            let factor = Int(client.scale.rounded())
-            self.init(width: client.width * factor, height: client.height * factor, hiDPI: true)
+            self.init(width: client.width * 2, height: client.height * 2, hiDPI: true)
         } else {
             self.init(width: client.width, height: client.height, hiDPI: false)
         }

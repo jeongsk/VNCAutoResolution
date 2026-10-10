@@ -189,13 +189,13 @@ final class VirtualDisplayTests: XCTestCase {
             VirtualDisplayMode(width: 1512, height: 982, hiDPI: false))
     }
 
-    func testHiDPIMultipliesPixelsByScale() {
+    func testHiDPIDoublesPointSize() {
         let mode = VirtualDisplayMode(client: ClientDisplay(deviceID: "a", width: 1512, height: 982, scale: 2), hiDPI: true)
         XCTAssertEqual(mode, VirtualDisplayMode(width: 3024, height: 1964, hiDPI: true))
         XCTAssertEqual(mode.pointSize.width, 1512)
         XCTAssertEqual(mode.pointSize.height, 982)
         let triple = VirtualDisplayMode(client: ClientDisplay(deviceID: "a", width: 800, height: 600, scale: 3), hiDPI: true)
-        XCTAssertEqual(triple, VirtualDisplayMode(width: 2400, height: 1800, hiDPI: true))
+        XCTAssertEqual(triple, VirtualDisplayMode(width: 1600, height: 1200, hiDPI: true))
     }
 
     func testHiDPIOnOneXClientStaysOneX() {
@@ -211,12 +211,19 @@ final class VirtualDisplayTests: XCTestCase {
         XCTAssertEqual(core.virtualDisplay.status, .active(width: 1512, height: 982))
     }
 
-    func testTogglingHiDPIMidSessionChangesMode() {
+    func testTogglingHiDPIMidSessionRecreatesDisplay() {
         clientReports()
         vncConnect()
         core.virtualDisplay.hiDPI = true
-        XCTAssertEqual(vdPort.updated, [VirtualDisplayMode(width: 3024, height: 1964, hiDPI: true)])
+        XCTAssertEqual(vdPort.updated, [])
+        XCTAssertEqual(vdPort.removeCount, 1)
+        XCTAssertEqual(vdPort.created.last, VirtualDisplayMode(width: 3024, height: 1964, hiDPI: true))
+        XCTAssertEqual(core.virtualDisplay.status, .active(width: 1512, height: 982))
         XCTAssertTrue(vdSettings.virtualDisplayHiDPI)
+
+        core.virtualDisplay.hiDPI = false
+        XCTAssertEqual(vdPort.removeCount, 2)
+        XCTAssertEqual(vdPort.created.last, VirtualDisplayMode(width: 1512, height: 982, hiDPI: false))
     }
 
     // MARK: 설정
