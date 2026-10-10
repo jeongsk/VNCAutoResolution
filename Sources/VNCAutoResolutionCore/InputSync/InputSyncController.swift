@@ -46,6 +46,9 @@ public final class InputSyncController {
     private var lastKnownID: String?
     /// 방금 원격 상태로 적용한 ID와 에코 무시 만료 시각.
     private var applied: (id: String, until: Date)?
+    /// 적용 실패로 보고한 ID. 전환이 늦게 반영돼 실제로는 그 입력 소스가 되면 실패 메시지를 지운다.
+    /// (도우미 프로세스로 전환하면 이 앱의 현재 입력 값은 알림이 처리된 뒤에야 바뀐다)
+    private var failedApplyID: String?
 
     public init(
         input: InputSourcing,
@@ -137,6 +140,10 @@ public final class InputSyncController {
     public func localInputChanged() {
         defer { onChange?() }
         guard let state = input.current else { Self.log.debug("local: 현재 값 없음"); return }
+        if let failed = failedApplyID, state.id == failed {
+            failedApplyID = nil
+            lastMessage = ""
+        }
         // 동기화 조건이 안 되면 보내지 않는다. 나중에 같은 ID로 돌아와도 보내도록 기억을 지운다.
         guard syncAllowed else {
             Self.log.debug("local \(state.id, privacy: .public): 동기화 조건 아님")
@@ -247,9 +254,11 @@ public final class InputSyncController {
             Self.log.debug("recv \(id, privacy: .public): select=\(ok, privacy: .public) 확인 \(after ?? "nil", privacy: .public)")
             if after == target.id {
                 lastMessage = ""
+                failedApplyID = nil
                 return
             }
         }
+        failedApplyID = target.id
         lastMessage = "입력 소스 적용 실패: \(target.id)"
     }
 }

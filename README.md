@@ -11,6 +11,8 @@
 
 > 라이선스: [CC BY-NC-SA 4.0](LICENSE). 개인·비영리 용도로는 자유롭게 쓰고 고칠 수 있지만, **상업적 이용은 할 수 없고** 수정본을 배포할 때는 같은 라이선스로 소스를 공개해야 합니다. 자세한 내용은 아래 [라이선스](#라이선스)를 보세요.
 
+<p align="center"><img src="docs/images/menu.png" width="317" alt="맥미니 메뉴바 메뉴: 맥북 화면에 맞춰 모니터를 1504×846 HiDPI로 바꾼 상태"></p>
+
 같은 앱을 두 Mac에 모두 설치합니다. 역할 설정은 없습니다.
 
 | 역할 | 예시 | 동작하는 기능 |
@@ -26,6 +28,10 @@
 ```sh
 xcode-select --install   # Command Line Tools가 없을 때
 ```
+
+## 내려받기
+
+[Releases](https://github.com/jeongsk/VNCAutoResolution/releases/latest)에서 `VNCAutoResolution.zip`을 받아 풀고 `/Applications`로 옮깁니다. 공증하지 않은 앱이라 처음 열 때 경고가 뜹니다. 아래 [다른 Mac으로 옮겼을 때](#다른-mac으로-옮겼을-때-gatekeeper)의 방법으로 여세요. 배포본은 ad-hoc 서명이라, 직접 빌드한 앱과 서명이 달라 권한을 다시 물을 수 있습니다.
 
 ## 빌드와 설치
 

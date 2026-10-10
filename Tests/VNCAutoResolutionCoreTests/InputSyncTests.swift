@@ -330,6 +330,26 @@ final class InputSyncTests: XCTestCase {
         XCTAssertTrue(sync.lastMessage.hasPrefix("입력 소스 적용 실패"))
     }
 
+    /// 전환이 늦게 반영되면(도우미 프로세스로 전환) 바로 확인할 때는 실패로 보이지만, 곧 그 입력 소스가 된다.
+    func testLateReflectedApplyClearsFailureMessage() {
+        startViewer()
+        input.failuresBeforeSuccess = 10
+        receive(.input(deviceID: peerID, sourceID: FakeInputSource.dubeolsik.id, isKorean: true))
+        XCTAssertTrue(sync.lastMessage.hasPrefix("입력 소스 적용 실패"))
+        input.current = FakeInputSource.dubeolsik
+        sync.localInputChanged()
+        XCTAssertEqual(sync.lastMessage, "")
+    }
+
+    func testFailureMessageStaysWhenInputBecomesSomethingElse() {
+        startViewer()
+        input.failuresBeforeSuccess = 10
+        receive(.input(deviceID: peerID, sourceID: FakeInputSource.dubeolsik.id, isKorean: true))
+        input.current = FakeInputSource.us
+        sync.localInputChanged()
+        XCTAssertTrue(sync.lastMessage.hasPrefix("입력 소스 적용 실패"))
+    }
+
     func testStateChangeCallbackFires() {
         var count = 0
         core.onStateChange = { count += 1 }

@@ -13,6 +13,8 @@ A macOS menu bar app that removes two annoyances of connecting from a MacBook to
 
 > License: [CC BY-NC-SA 4.0](LICENSE). You may use and modify it freely for personal and non-commercial purposes, but **commercial use is not allowed**, and if you distribute a modified version you must release the source under the same license. See [License](#license) below for details.
 
+<p align="center"><img src="docs/images/menu.png" width="317" alt="Mac mini menu bar menu: the monitor switched to 1504×846 HiDPI to fit the MacBook screen"></p>
+
 Install the same app on both Macs. There is no role setting.
 
 | Role | Example | Features that run |
@@ -28,6 +30,10 @@ Install the same app on both Macs. There is no role setting.
 ```sh
 xcode-select --install   # if Command Line Tools are not installed
 ```
+
+## Download
+
+Download `VNCAutoResolution.zip` from [Releases](https://github.com/jeongsk/VNCAutoResolution/releases/latest), unzip it and move the app to `/Applications`. The app is not notarized, so macOS warns you the first time you open it; see [After moving to another Mac](#after-moving-to-another-mac-gatekeeper) below for how to open it. Release builds are ad-hoc signed, so their signature differs from an app you build yourself and macOS may ask for permissions again.
 
 ## Build and install
 
