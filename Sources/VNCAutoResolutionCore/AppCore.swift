@@ -8,6 +8,8 @@ public final class AppCore {
     public let clientDisplayController: ClientDisplayController
     /// 텍스트 클립보드 공유. 앱이 짧은 주기로 `clipboardSync.poll()`을 부른다.
     public let clipboardSync: ClipboardSyncController
+    /// 파일 하나 보내기·받기.
+    public let fileTransfer: FileTransferController
 
     /// 클라이언트 화면 크기의 가상 디스플레이. 있는 동안 `resolution`은 멈춘다.
     public let virtualDisplay: VirtualDisplayController
@@ -41,7 +43,11 @@ public final class AppCore {
         virtualDisplay: VirtualDisplayControlling? = nil,
         virtualDisplaySettings: VirtualDisplaySettingsStoring? = nil,
         clipboard: ClipboardAccessing? = nil,
-        clipboardSettings: ClipboardSettingsStoring? = nil
+        clipboardSettings: ClipboardSettingsStoring? = nil,
+        fileReader: LocalFileReading? = nil,
+        fileStore: ReceivedFileStoring? = nil,
+        fileOfferNotifier: FileOfferNotifying? = nil,
+        fileTransferSettings: FileTransferSettingsStoring? = nil
     ) {
         self.vnc = vnc
         self.resolution = ResolutionController(display: display, settings: settings, clock: clock)
@@ -60,6 +66,11 @@ public final class AppCore {
         self.clipboardSync = ClipboardSyncController(
             clipboard: clipboard ?? NullClipboard(),
             settings: clipboardSettings ?? InMemoryClipboardSettings(), peers: peers, inputSync: inputSync)
+        self.fileTransfer = FileTransferController(
+            reader: fileReader ?? NullFileReader(), store: fileStore ?? NullFileStore(),
+            notifier: fileOfferNotifier ?? NullFileOfferNotifier(),
+            settings: fileTransferSettings ?? InMemoryFileTransferSettings(), peers: peers, clock: clock)
+        peers.dataChannelHandler = fileTransfer
 
         // 가상 디스플레이와 해상도 컨트롤러는 서로 배타적이다. 세션 판단은 해상도 컨트롤러의 것(디바운스 포함)을 같이 쓴다.
         // 가상 디스플레이가 있는 동안 해상도 컨트롤러는 멈추고, 새 세션이 시작되면 가상 디스플레이가 먼저 자리를 잡는다.
@@ -81,16 +92,20 @@ public final class AppCore {
         let sync = inputSync
         let display = clientDisplayController
         let clipboardSync = self.clipboardSync
+        let fileTransfer = self.fileTransfer
         peers.onMessage = { message, peer in
             switch message {
             case .display: display.handle(message, from: peer)
             case .clipboard: clipboardSync.handle(message, from: peer)
-            case .hello, .input, .session: sync.handle(message, from: peer)
+            case .fileOffer, .fileAnswer: fileTransfer.handle(message, from: peer)
+            case .hello, .input, .session, .dataChannel: sync.handle(message, from: peer)
             }
         }
         clipboardSync.onChange = { [weak self] in self?.onStateChange?() }
+        fileTransfer.onChange = { [weak self] in self?.onStateChange?() }
         peers.onChange = { [weak self] in
             self?.inputSync.peersChanged()
+            self?.fileTransfer.peersChanged()
             self?.clientDisplayController.refresh()   // 연결이 끊긴 피어의 화면 정보를 비운다.
             self?.onStateChange?()
         }
@@ -134,5 +149,6 @@ public final class AppCore {
         virtualDisplay.sync()
         inputSync.setLocalVNC(active: resolution.isConnected)
         inputSync.tick()
+        fileTransfer.tick()
     }
 }

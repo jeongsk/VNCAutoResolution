@@ -28,7 +28,9 @@ final class AppModel: ObservableObject {
         virtualDisplay: VirtualDisplayControlling = RuntimeVirtualDisplay(),
         virtualDisplaySettings: VirtualDisplaySettingsStoring = UserDefaultsVirtualDisplaySettings(),
         clipboard: ClipboardAccessing = GeneralPasteboard(),
-        clipboardSettings: ClipboardSettingsStoring = UserDefaultsClipboardSettings()
+        clipboardSettings: ClipboardSettingsStoring = UserDefaultsClipboardSettings(),
+        fileOffers: UserNotificationFileOffers = UserNotificationFileOffers(),
+        fileTransferSettings: FileTransferSettingsStoring = UserDefaultsFileTransferSettings()
     ) {
         self.detector = detector
         // 피어 전송: Bonjour 서비스 이름은 deviceID(기기마다 유일, 사전순 비교로 연결 주체 결정).
@@ -39,7 +41,9 @@ final class AppModel: ObservableObject {
             deviceName: Host.current().localizedName ?? "Mac",
             inputSource: inputSource, viewerApps: viewerApps, inputSyncSettings: inputSyncSettings,
             screen: screen, virtualDisplay: virtualDisplay, virtualDisplaySettings: virtualDisplaySettings,
-            clipboard: clipboard, clipboardSettings: clipboardSettings)
+            clipboard: clipboard, clipboardSettings: clipboardSettings,
+            fileReader: FileSystemFileReader(), fileStore: DownloadsFileStore(),
+            fileOfferNotifier: fileOffers, fileTransferSettings: fileTransferSettings)
         launchAtLogin = LoginItem.isEnabled
         // 모니터·더미 플러그 연결/해제 등 디스플레이 구성 변경 시 해상도 목록을 갱신한다.
         NotificationCenter.default.addObserver(
@@ -54,6 +58,12 @@ final class AppModel: ObservableObject {
         }
         viewerApps.onChange = { [weak self] in
             MainActor.assumeIsolated { self?.core.inputSync.viewerAppsChanged() }
+        }
+        // 알림의 수락·거절 버튼 (메인 큐)
+        fileOffers.onAnswer = { [weak self] transferID, accepted in
+            MainActor.assumeIsolated {
+                if accepted { self?.acceptFileOffer(transferID) } else { self?.declineFileOffer(transferID) }
+            }
         }
         startPeers(transport)
         Task { await pollLoop() }
@@ -132,6 +142,41 @@ final class AppModel: ObservableObject {
     var clipboardSyncEnabled: Bool {
         get { core.clipboardSync.enabled }
         set { objectWillChange.send(); core.clipboardSync.enabled = newValue }
+    }
+
+    // MARK: 파일 전송
+
+    var fileTransferStatus: FileTransferController.Status { core.fileTransfer.status }
+    var incomingFileOffer: IncomingFileOffer? { core.fileTransfer.incomingOffer }
+
+    var fileReceiveEnabled: Bool {
+        get { core.fileTransfer.receiveEnabled }
+        set { objectWillChange.send(); core.fileTransfer.receiveEnabled = newValue }
+    }
+
+    func canSendFile(to peer: PeerManager.Peer) -> Bool { core.fileTransfer.canSend(to: peer) }
+
+    /// 파일 하나를 고르게 하고, 고르면 이 피어에게 보낸다.
+    func chooseFileAndSend(to deviceID: String) {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = "보낼 파일을 고르세요 (\(FileOfferText.size(FileTransferController.maxFileBytes)) 이하)"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        objectWillChange.send()
+        core.fileTransfer.send(fileAt: url, to: deviceID)
+    }
+
+    func acceptFileOffer(_ transferID: String) {
+        objectWillChange.send()
+        core.fileTransfer.accept(transferID: transferID)
+    }
+
+    func declineFileOffer(_ transferID: String) {
+        objectWillChange.send()
+        core.fileTransfer.decline(transferID: transferID)
     }
 
     // MARK: 클라이언트 화면 (호스트가 피어에게서 받은 것)

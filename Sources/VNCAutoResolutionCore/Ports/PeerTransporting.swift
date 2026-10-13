@@ -19,6 +19,12 @@ public enum PeerTransportEvent: Sendable {
     case disconnected(PeerConnectionID)
     /// 사용자에게 보여 줄 전송 계층 상태/오류 (예: 리스너 시작 실패).
     case status(String)
+    /// 리스너가 이 포트로 열렸다. (파일 전송을 수락할 때 상대에게 알려 준다)
+    case listening(UInt16)
+    /// `openDataChannel`로 연 데이터 채널이 준비됐다. 이 연결은 `connected`로 알리지 않는다.
+    case dataChannelOpened(PeerConnectionID, transferID: String)
+    /// `openDataChannel`로 연 데이터 채널이 준비되지 못했다.
+    case dataChannelFailed(transferID: String)
 }
 
 /// 전송 계층 설정. 암호가 비어 있으면 전송 계층은 아무것도 열지 않는다.
@@ -45,4 +51,22 @@ public protocol PeerTransporting: AnyObject {
     func send(_ data: Data, to id: PeerConnectionID)
     /// 연결을 닫는다. 이후 `disconnected`가 올 수 있다.
     func close(_ id: PeerConnectionID)
+    /// 피어 연결 `peer`의 상대에게 같은 TLS-PSK로 별도 연결(데이터 채널)을 연다. 재연결은 하지 않는다.
+    /// 우리가 건 피어 연결이면 그 주소를, 들어온 연결이면 상대 호스트와 `port`를 쓴다.
+    /// 결과는 `dataChannelOpened`/`dataChannelFailed`로, 닫히면 `disconnected`로 알린다.
+    func openDataChannel(alongside peer: PeerConnectionID, port: UInt16?, transferID: String)
+}
+
+/// 데이터 채널(파일 전송용 별도 연결) 이벤트를 받는 쪽. `PeerManager`가 줄 단위 처리 없이 바이트를 그대로 넘긴다.
+public protocol PeerDataChannelHandling: AnyObject {
+    /// 들어온 연결의 첫 줄이 데이터 채널 머리말이다. false면 연결을 닫는다.
+    func shouldAcceptDataChannel(transferID: String, from deviceID: String) -> Bool
+    /// 받은 데이터 채널 바이트(머리말 제외).
+    func dataChannelReceived(transferID: String, data: Data)
+    /// 우리가 연 데이터 채널이 준비됐다. 머리말은 이미 보냈다.
+    func dataChannelOpened(transferID: String)
+    /// 우리가 연 데이터 채널이 열리지 못했다.
+    func dataChannelFailed(transferID: String)
+    /// 데이터 채널이 닫혔다(어느 쪽이 닫았든).
+    func dataChannelClosed(transferID: String)
 }

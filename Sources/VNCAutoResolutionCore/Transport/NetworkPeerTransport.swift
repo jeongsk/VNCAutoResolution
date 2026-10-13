@@ -11,6 +11,9 @@ import Network
 /// - 연결 거는 쪽: Bonjour는 서비스 이름이 사전순으로 작은 쪽이 바로 건다. 큰 쪽도 `passiveDialDelay` 뒤에 건다.
 ///   (한쪽만 상대를 볼 때도 연결되게 한다. 둘 다 이어지면 코어가 작은 쪽이 건 연결만 남긴다) 직접 입력 주소는 입력한 쪽.
 /// - 끊긴 연결과 `dialTimeout` 안에 준비되지 않은 연결은 백오프로 다시 건다.
+/// - 데이터 채널(파일 전송용 별도 연결)은 같은 리스너·같은 TLS-PSK를 쓴다. 거는 쪽은 `connected` 대신
+///   `dataChannelOpened`로 알리고 재연결하지 않는다. 받는 쪽에서는 보통 연결처럼 `connected`로 올라오고,
+///   코어가 첫 줄로 데이터 채널임을 알아본다.
 /// - 모든 가변 상태는 내부 직렬 큐에서만 만진다. 이벤트는 `eventQueue`로 전달한다.
 public final class NetworkPeerTransport: PeerTransporting, @unchecked Sendable {
     public struct Options: Sendable {
@@ -51,13 +54,17 @@ public final class NetworkPeerTransport: PeerTransporting, @unchecked Sendable {
         let connection: NWConnection
         let isOutbound: Bool
         let targetKey: String?
+        /// 우리가 연 데이터 채널이면 그 전송 ID.
+        let dataTransferID: String?
         var announced = false
         var closedByUs = false
-        init(id: PeerConnectionID, connection: NWConnection, isOutbound: Bool, targetKey: String?) {
+        init(id: PeerConnectionID, connection: NWConnection, isOutbound: Bool, targetKey: String?,
+             dataTransferID: String? = nil) {
             self.id = id
             self.connection = connection
             self.isOutbound = isOutbound
             self.targetKey = targetKey
+            self.dataTransferID = dataTransferID
         }
     }
 
@@ -146,6 +153,35 @@ public final class NetworkPeerTransport: PeerTransporting, @unchecked Sendable {
         }
     }
 
+    public func openDataChannel(alongside peer: PeerConnectionID, port: UInt16?, transferID: String) {
+        queue.async {
+            guard let passphrase = self.activePassphrase, !passphrase.isEmpty,
+                  let live = self.connections[peer], live.announced,
+                  let endpoint = self.dataChannelEndpoint(for: live, port: port) else {
+                self.emit(.dataChannelFailed(transferID: transferID))
+                return
+            }
+            let connection = NWConnection(to: endpoint, using: self.parameters(passphrase: passphrase))
+            let channel = self.adopt(connection, isOutbound: true, targetKey: nil, dataTransferID: transferID)
+            self.queue.asyncAfter(deadline: .now() + self.options.dialTimeout) { [weak self, weak channel] in
+                guard let self, let channel, self.connections[channel.id] === channel, !channel.announced else { return }
+                self.finish(channel.id)
+            }
+        }
+    }
+
+    /// 데이터 채널을 걸 주소. 우리가 건 피어 연결이면 그 주소(직접 입력·Bonjour)를 그대로 쓴다.
+    /// 들어온 연결이면 상대 호스트에 상대가 알려 준 리스너 포트를 붙인다.
+    /// (상대가 NAT 뒤에서 걸어 온 경우에는 닿지 않을 수 있다. Tailscale·같은 네트워크는 문제없다)
+    private func dataChannelEndpoint(for live: Live, port: UInt16?) -> NWEndpoint? {
+        if let key = live.targetKey, let target = targets[key] { return target.endpoint }
+        let remote = live.connection.currentPath?.remoteEndpoint ?? live.connection.endpoint
+        guard case .hostPort(let host, _) = remote, let port, let listenPort = NWEndpoint.Port(rawValue: port) else {
+            return nil
+        }
+        return .hostPort(host: host, port: listenPort)
+    }
+
     // MARK: 설정 반영
 
     /// 현재 설정과 실행 상태에 맞게 네트워크를 맞춘다. 암호가 바뀌면 전부 새로 연다.
@@ -219,6 +255,7 @@ public final class NetworkPeerTransport: PeerTransporting, @unchecked Sendable {
                     if self.listenerAttempt > 0 { self.emit(.status("")) }
                     self.listenerAttempt = 0
                     if let p = l?.port?.rawValue {
+                        self.emit(.listening(p))
                         self.eventQueue.async { self.onListening?(p) }
                     }
                 case .failed(let error):
@@ -318,10 +355,12 @@ public final class NetworkPeerTransport: PeerTransporting, @unchecked Sendable {
     }
 
     @discardableResult
-    private func adopt(_ connection: NWConnection, isOutbound: Bool, targetKey: String?) -> Live {
+    private func adopt(_ connection: NWConnection, isOutbound: Bool, targetKey: String?,
+                       dataTransferID: String? = nil) -> Live {
         let id = nextID
         nextID += 1
-        let live = Live(id: id, connection: connection, isOutbound: isOutbound, targetKey: targetKey)
+        let live = Live(id: id, connection: connection, isOutbound: isOutbound, targetKey: targetKey,
+                        dataTransferID: dataTransferID)
         connections[id] = live
         connection.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
@@ -329,9 +368,13 @@ public final class NetworkPeerTransport: PeerTransporting, @unchecked Sendable {
             case .ready:
                 guard !live.announced, self.connections[id] === live else { return }
                 live.announced = true
-                let route = targetKey.flatMap { self.targets[$0]?.route }
-                if let key = targetKey { self.targets[key]?.attempt = 0 }
-                self.emit(.connected(id, route: route, isOutbound: isOutbound))
+                if let transferID = dataTransferID {
+                    self.emit(.dataChannelOpened(id, transferID: transferID))
+                } else {
+                    let route = targetKey.flatMap { self.targets[$0]?.route }
+                    if let key = targetKey { self.targets[key]?.attempt = 0 }
+                    self.emit(.connected(id, route: route, isOutbound: isOutbound))
+                }
                 self.receiveLoop(live)
             case .failed, .waiting, .cancelled:
                 // 핸드셰이크 실패(암호 불일치 포함)는 .failed/.waiting 으로 온다.
@@ -362,7 +405,11 @@ public final class NetworkPeerTransport: PeerTransporting, @unchecked Sendable {
         guard let live = connections.removeValue(forKey: id) else { return }
         live.connection.stateUpdateHandler = nil
         live.connection.cancel()
-        if live.announced { emit(.disconnected(id)) }
+        if live.announced {
+            emit(.disconnected(id))
+        } else if let transferID = live.dataTransferID {
+            emit(.dataChannelFailed(transferID: transferID))
+        }
         guard let key = live.targetKey, let target = targets[key], target.liveID == id else { return }
         target.liveID = nil
         // 우리가 닫은 연결(중복·자기 자신 정리)은 상한 간격으로 천천히 다시 건다.

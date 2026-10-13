@@ -27,6 +27,16 @@ public final class PeerManager {
         public init() {}
     }
 
+    /// 연결이 받은 바이트를 어떻게 다루는지.
+    private enum Mode {
+        /// 첫 줄을 기다리는 중. 첫 줄로 피어 연결(hello)인지 데이터 채널인지 가른다.
+        case firstLine(Data)
+        /// 줄 단위 메시지.
+        case lines
+        /// 데이터 채널: 바이트를 그대로 넘긴다(프레이밍·빈도 제한 없음).
+        case dataChannel(transferID: String)
+    }
+
     private struct Connection {
         let id: PeerConnectionID
         let isOutbound: Bool
@@ -35,7 +45,11 @@ public final class PeerManager {
         var framer: MessageFramer
         var limiter: RateLimiter
         var peer: Peer?
+        var mode: Mode = .firstLine(Data())
     }
+
+    /// 첫 줄(hello 또는 데이터 채널 머리말) 상한. 둘 다 짧다.
+    static let maxFirstLineBytes = 4096
 
     public let deviceID: String
     public let deviceName: String
@@ -52,8 +66,12 @@ public final class PeerManager {
 
     /// 피어 목록/상태가 바뀔 때마다 불린다.
     public var onChange: (() -> Void)?
-    /// hello 이후 피어가 보낸 `input`/`session`/`display`/`clipboard` 메시지. 코어(AppCore)가 구독한다.
+    /// hello 이후 피어가 보낸 `input`/`session`/`display`/`clipboard`/`fileOffer`/`fileAnswer` 메시지. 코어(AppCore)가 구독한다.
     public var onMessage: ((PeerMessage, Peer) -> Void)?
+    /// 데이터 채널 이벤트를 받는 쪽(파일 전송).
+    public weak var dataChannelHandler: PeerDataChannelHandling?
+    /// 우리 리스너 포트. 전송 계층이 알려 준 뒤에 정해진다.
+    public private(set) var listenPort: UInt16?
 
     private let transport: PeerTransporting
     private let settings: PeerSettingsStoring
@@ -115,6 +133,47 @@ public final class PeerManager {
         }
     }
 
+    /// 이 deviceID의 피어에게만 보낸다. 연결돼 있지 않으면 false.
+    @discardableResult
+    public func send(_ message: PeerMessage, toDeviceID peerID: String) -> Bool {
+        guard let connection = peerConnection(for: peerID) else { return false }
+        transport.send(PeerCodec.encode(message), to: connection.id)
+        return true
+    }
+
+    // MARK: 데이터 채널
+
+    /// 이 피어에게 데이터 채널을 연다. 결과는 `dataChannelHandler`로 온다. 피어가 없으면 false.
+    @discardableResult
+    public func openDataChannel(toDeviceID peerID: String, port: UInt16?, transferID: String) -> Bool {
+        guard let connection = peerConnection(for: peerID) else { return false }
+        transport.openDataChannel(alongside: connection.id, port: port, transferID: transferID)
+        return true
+    }
+
+    /// 데이터 채널로 바이트를 보낸다.
+    public func sendData(_ data: Data, transferID: String) {
+        guard let id = dataChannelID(transferID) else { return }
+        transport.send(data, to: id)
+    }
+
+    /// 데이터 채널을 닫는다. `dataChannelClosed`는 부르지 않는다.
+    public func closeDataChannel(transferID: String) {
+        guard let id = dataChannelID(transferID) else { return }
+        connections.removeValue(forKey: id)
+        transport.close(id)
+    }
+
+    private func peerConnection(for peerID: String) -> Connection? {
+        connections.values.first { $0.peer?.deviceID == peerID }
+    }
+
+    private func dataChannelID(_ transferID: String) -> PeerConnectionID? {
+        connections.values.first {
+            if case .dataChannel(let id) = $0.mode { return id == transferID } else { return false }
+        }?.id
+    }
+
     // MARK: 전송 이벤트
 
     public func handle(_ event: PeerTransportEvent) {
@@ -136,31 +195,88 @@ public final class PeerManager {
             )), to: id)
 
         case .received(let id, let data):
-            guard var connection = connections[id] else { return }
-            let lines = connection.framer.append(data)
-            connections[id] = connection
-            for line in lines {
-                // 위 처리 중 연결이 닫혔을 수 있다(중복/자기 자신 정리).
-                guard connections[id] != nil else { return }
-                guard connections[id]!.limiter.allow(at: clock.now) else {
-                    ignoredMessageCount += 1
-                    continue
-                }
-                guard let message = PeerCodec.decode(line) else {
-                    ignoredMessageCount += 1
-                    continue
-                }
-                handle(message, on: id)
+            guard let connection = connections[id] else { return }
+            switch connection.mode {
+            case .firstLine(let buffered):
+                receiveFirstLine(buffered + data, on: id)
+            case .lines:
+                receiveLines(data, on: id)
+            case .dataChannel(let transferID):
+                // 우리가 연 데이터 채널로 상대가 보낸 바이트(hello 등)는 쓰지 않는다.
+                if !connection.isOutbound { dataChannelHandler?.dataChannelReceived(transferID: transferID, data: data) }
             }
 
         case .disconnected(let id):
-            if let removed = connections.removeValue(forKey: id), removed.peer != nil {
+            guard let removed = connections.removeValue(forKey: id) else { return }
+            if case .dataChannel(let transferID) = removed.mode {
+                dataChannelHandler?.dataChannelClosed(transferID: transferID)
+            } else if removed.peer != nil {
                 onChange?()
             }
 
         case .status(let text):
             statusMessage = text
             onChange?()
+
+        case .listening(let port):
+            listenPort = port
+
+        case .dataChannelOpened(let id, let transferID):
+            var channel = Connection(
+                id: id, isOutbound: true, outboundRoute: nil,
+                framer: MessageFramer(maxLineLength: 0), limiter: RateLimiter(maxCount: 0, interval: 1))
+            channel.mode = .dataChannel(transferID: transferID)
+            connections[id] = channel
+            transport.send(PeerCodec.encode(.dataChannel(deviceID: deviceID, transferID: transferID)), to: id)
+            dataChannelHandler?.dataChannelOpened(transferID: transferID)
+
+        case .dataChannelFailed(let transferID):
+            dataChannelHandler?.dataChannelFailed(transferID: transferID)
+        }
+    }
+
+    /// 첫 줄을 모은다. 데이터 채널 머리말이면 그 연결을 데이터 채널로 바꾸고 나머지 바이트를 그대로 넘긴다.
+    /// 그 밖에는 줄 단위 처리로 넘긴다. (머리말과 파일 바이트가 한 덩어리로 와도 파일 바이트를 줄로 자르지 않는다)
+    private func receiveFirstLine(_ buffered: Data, on id: PeerConnectionID) {
+        guard let newline = buffered.firstIndex(of: 0x0A) else {
+            guard buffered.count <= Self.maxFirstLineBytes else { ignoredMessageCount += 1; return drop(id) }
+            connections[id]?.mode = .firstLine(buffered)
+            return
+        }
+        let line = buffered[buffered.startIndex..<newline]
+        let rest = buffered[buffered.index(after: newline)...]
+        guard line.count <= Self.maxFirstLineBytes else { ignoredMessageCount += 1; return drop(id) }
+
+        if case .dataChannel(let peerID, let transferID)? = PeerCodec.decode(line) {
+            guard connections[id]?.isOutbound == false, peerID != deviceID,
+                  dataChannelHandler?.shouldAcceptDataChannel(transferID: transferID, from: peerID) == true else {
+                ignoredMessageCount += 1
+                return drop(id)
+            }
+            connections[id]?.mode = .dataChannel(transferID: transferID)
+            if !rest.isEmpty { dataChannelHandler?.dataChannelReceived(transferID: transferID, data: Data(rest)) }
+            return
+        }
+        connections[id]?.mode = .lines
+        receiveLines(Data(line) + [0x0A] + rest, on: id)
+    }
+
+    private func receiveLines(_ data: Data, on id: PeerConnectionID) {
+        guard var connection = connections[id] else { return }
+        let lines = connection.framer.append(data)
+        connections[id] = connection
+        for line in lines {
+            // 위 처리 중 연결이 닫혔을 수 있다(중복/자기 자신 정리).
+            guard connections[id] != nil else { return }
+            guard connections[id]!.limiter.allow(at: clock.now) else {
+                ignoredMessageCount += 1
+                continue
+            }
+            guard let message = PeerCodec.decode(line) else {
+                ignoredMessageCount += 1
+                continue
+            }
+            handle(message, on: id)
         }
     }
 
@@ -187,7 +303,11 @@ public final class PeerManager {
             register(connection, deviceID: peerID, name: name, route: connection.outboundRoute ?? route ?? .manual,
                      features: Set(features))
 
-        case .input, .session, .display, .clipboard:
+        case .dataChannel:
+            // 데이터 채널 머리말은 연결의 첫 줄로만 의미가 있다.
+            ignoredMessageCount += 1
+
+        case .input, .session, .display, .clipboard, .fileOffer, .fileAnswer:
             // hello 전이거나, hello에서 밝힌 deviceID와 다른 메시지(위장·중계)는 무시한다.
             guard let peer = connection.peer, peer.deviceID == message.deviceID else {
                 ignoredMessageCount += 1

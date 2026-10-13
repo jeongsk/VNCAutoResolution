@@ -11,6 +11,10 @@ final class PeerProtocolTests: XCTestCase {
             .session(deviceID: "a", active: true),
             .hello(deviceID: "a", name: "맥", protocolVersion: 1, route: nil, features: ["clipboard"]),
             .clipboard(deviceID: "a", text: "여러 줄\n\"따옴표\" / 경로"),
+            .fileOffer(deviceID: "a", transferID: "t1", name: "보고서.pdf", size: 1234, sha256: "ab12"),
+            .fileAnswer(deviceID: "a", transferID: "t1", accepted: true, reason: nil, port: 51234),
+            .fileAnswer(deviceID: "a", transferID: "t1", accepted: false, reason: .disabled, port: nil),
+            .dataChannel(deviceID: "a", transferID: "t1"),
         ]
         for message in messages {
             let data = PeerCodec.encode(message)
@@ -45,6 +49,18 @@ final class PeerProtocolTests: XCTestCase {
     func testClipboardWireFormat() throws {
         let line = #"{"type":"clipboard","deviceID":"d1","text":"안녕"}"#
         XCTAssertEqual(PeerCodec.decode(Data(line.utf8)), .clipboard(deviceID: "d1", text: "안녕"))
+    }
+
+    func testFileAnswerWithUnknownReasonDecodesAsDeclined() throws {
+        let line = #"{"type":"fileAnswer","deviceID":"d1","transferID":"t","accepted":false,"reason":"later"}"#
+        XCTAssertEqual(
+            PeerCodec.decode(Data(line.utf8)),
+            .fileAnswer(deviceID: "d1", transferID: "t", accepted: false, reason: .declined, port: nil))
+    }
+
+    func testDataChannelWireFormat() throws {
+        let line = #"{"type":"data","deviceID":"d1","transferID":"t"}"#
+        XCTAssertEqual(PeerCodec.decode(Data(line.utf8)), .dataChannel(deviceID: "d1", transferID: "t"))
     }
 
     func testFramerHandlesSplitAndMergedChunks() {

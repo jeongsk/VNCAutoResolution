@@ -7,8 +7,12 @@ import Foundation
 ///     session { deviceID, active }
 ///     display { deviceID, width, height, scale }   (클라이언트 메인 화면: 포인트 크기 + 배율)
 ///     clipboard { deviceID, text }                (텍스트 클립보드)
+///     fileOffer  { deviceID, transferID, name, size, sha256 }   (파일 전송 제안)
+///     fileAnswer { deviceID, transferID, accepted }   (+ 선택: reason, port)
+///     data       { deviceID, transferID }         (데이터 채널의 첫 줄. 이후는 파일 바이트)
 ///
-/// `input`과 `session`은 입력 동기화(#5), `display`는 클라이언트 화면 정보(#8), `clipboard`는 클립보드 공유(#17)에서 쓴다.
+/// `input`과 `session`은 입력 동기화(#5), `display`는 클라이언트 화면 정보(#8), `clipboard`는 클립보드 공유(#17),
+/// `fileOffer`·`fileAnswer`·`data`는 파일 전송(#18)에서 쓴다.
 /// 새 기능은 `protocolVersion`을 올리지 않고 hello의 `features`로 알린다. 예전 버전은 모르는 필드·메시지를 무시한다.
 /// 모르는 `type`은 디코딩 실패(nil)로 처리되고, `PeerManager`가 그 줄만 버리고 연결은 유지한다.
 public enum PeerMessage: Equatable, Sendable {
@@ -21,6 +25,12 @@ public enum PeerMessage: Equatable, Sendable {
     case display(deviceID: String, width: Int, height: Int, scale: Double)
     /// 보낸 쪽 클립보드의 일반 텍스트.
     case clipboard(deviceID: String, text: String)
+    /// 파일 전송 제안. `sha256`은 소문자 16진수.
+    case fileOffer(deviceID: String, transferID: String, name: String, size: Int, sha256: String)
+    /// 제안에 대한 답. 수락하면 `port`에 받는 쪽 리스너 포트를 담는다(보내는 쪽이 들어온 연결이라 주소만 알 때 쓴다).
+    case fileAnswer(deviceID: String, transferID: String, accepted: Bool, reason: FileDeclineReason?, port: Int?)
+    /// 데이터 채널의 첫 줄. 이 줄을 받은 연결은 피어 연결이 아니다.
+    case dataChannel(deviceID: String, transferID: String)
 
     public static let protocolVersion = 1
     /// `clipboard` 텍스트 상한(UTF-8 바이트). 메시지 한 줄 상한(`PeerManager.Limits`)이 이 값에 맞춰 잡힌다.
@@ -29,7 +39,8 @@ public enum PeerMessage: Equatable, Sendable {
     public var deviceID: String {
         switch self {
         case .hello(let id, _, _, _, _), .input(let id, _, _), .session(let id, _), .display(let id, _, _, _),
-             .clipboard(let id, _): return id
+             .clipboard(let id, _), .fileOffer(let id, _, _, _, _), .fileAnswer(let id, _, _, _, _),
+             .dataChannel(let id, _): return id
         }
     }
 }
@@ -37,6 +48,7 @@ public enum PeerMessage: Equatable, Sendable {
 extension PeerMessage: Codable {
     private enum CodingKeys: String, CodingKey {
         case type, deviceID, name, protocolVersion, route, features, sourceID, isKorean, active, width, height, scale, text
+        case transferID, size, sha256, accepted, reason, port
     }
 
     public init(from decoder: Decoder) throws {
@@ -69,6 +81,25 @@ extension PeerMessage: Codable {
             )
         case "clipboard":
             self = .clipboard(deviceID: deviceID, text: try c.decode(String.self, forKey: .text))
+        case "fileOffer":
+            self = .fileOffer(
+                deviceID: deviceID,
+                transferID: try c.decode(String.self, forKey: .transferID),
+                name: try c.decode(String.self, forKey: .name),
+                size: try c.decode(Int.self, forKey: .size),
+                sha256: try c.decode(String.self, forKey: .sha256))
+        case "fileAnswer":
+            let accepted = try c.decode(Bool.self, forKey: .accepted)
+            // 모르는 거절 사유는 그냥 거절로 본다.
+            let reason = accepted ? nil
+                : (try? c.decodeIfPresent(FileDeclineReason.self, forKey: .reason)) ?? .declined
+            self = .fileAnswer(
+                deviceID: deviceID,
+                transferID: try c.decode(String.self, forKey: .transferID),
+                accepted: accepted, reason: reason,
+                port: try? c.decodeIfPresent(Int.self, forKey: .port))
+        case "data":
+            self = .dataChannel(deviceID: deviceID, transferID: try c.decode(String.self, forKey: .transferID))
         case let other:
             throw DecodingError.dataCorruptedError(
                 forKey: .type, in: c, debugDescription: "알 수 없는 메시지 종류: \(other)")
@@ -100,6 +131,21 @@ extension PeerMessage: Codable {
         case .clipboard(_, let text):
             try c.encode("clipboard", forKey: .type)
             try c.encode(text, forKey: .text)
+        case .fileOffer(_, let transferID, let name, let size, let sha256):
+            try c.encode("fileOffer", forKey: .type)
+            try c.encode(transferID, forKey: .transferID)
+            try c.encode(name, forKey: .name)
+            try c.encode(size, forKey: .size)
+            try c.encode(sha256, forKey: .sha256)
+        case .fileAnswer(_, let transferID, let accepted, let reason, let port):
+            try c.encode("fileAnswer", forKey: .type)
+            try c.encode(transferID, forKey: .transferID)
+            try c.encode(accepted, forKey: .accepted)
+            try c.encodeIfPresent(reason, forKey: .reason)
+            try c.encodeIfPresent(port, forKey: .port)
+        case .dataChannel(_, let transferID):
+            try c.encode("data", forKey: .type)
+            try c.encode(transferID, forKey: .transferID)
         }
     }
 }
@@ -107,8 +153,18 @@ extension PeerMessage: Codable {
 /// hello의 `features`에 쓰는 기능 이름.
 public enum PeerFeature {
     public static let clipboard = "clipboard"
+    public static let fileTransfer = "fileTransfer"
     /// 이 버전이 지원하는 기능. hello로 알린다.
-    public static let supported = [clipboard]
+    public static let supported = [clipboard, fileTransfer]
+}
+
+/// 파일 전송 제안을 거절한 사유.
+public enum FileDeclineReason: String, Codable, Sendable {
+    case declined   // 사용자가 거절함
+    case timeout    // 60초 안에 응답 없음
+    case disabled   // 받기가 꺼져 있음
+    case tooLarge   // 크기 상한 초과
+    case busy       // 다른 전송을 처리 중
 }
 
 /// 메시지 <-> 한 줄 JSON 변환.

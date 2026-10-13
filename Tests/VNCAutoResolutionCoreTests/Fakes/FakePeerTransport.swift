@@ -6,12 +6,21 @@ final class FakePeerTransport: PeerTransporting {
     private(set) var sent: [(id: PeerConnectionID, data: Data)] = []
     private(set) var closed: [PeerConnectionID] = []
     private(set) var configs: [PeerTransportConfig] = []
+    private(set) var dataChannelRequests: [(peer: PeerConnectionID, port: UInt16?, transferID: String)] = []
 
     func start(onEvent: @escaping @Sendable (PeerTransportEvent) -> Void) {}
     func stop() {}
     func updateConfig(_ config: PeerTransportConfig) { configs.append(config) }
     func send(_ data: Data, to id: PeerConnectionID) { sent.append((id, data)) }
     func close(_ id: PeerConnectionID) { closed.append(id) }
+    func openDataChannel(alongside peer: PeerConnectionID, port: UInt16?, transferID: String) {
+        dataChannelRequests.append((peer, port, transferID))
+    }
+
+    /// 연결 `id`로 보낸 원시 바이트를 이어 붙인 것.
+    func bytes(to id: PeerConnectionID) -> Data {
+        sent.filter { $0.id == id }.reduce(into: Data()) { $0.append($1.data) }
+    }
     func clearSent() { sent.removeAll() }
 
     /// 연결 `id`로 보낸 메시지들.

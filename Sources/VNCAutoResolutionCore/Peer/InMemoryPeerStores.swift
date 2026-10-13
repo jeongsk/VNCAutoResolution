@@ -25,4 +25,5 @@ public final class NullPeerTransport: PeerTransporting {
     public func updateConfig(_ config: PeerTransportConfig) {}
     public func send(_ data: Data, to id: PeerConnectionID) {}
     public func close(_ id: PeerConnectionID) {}
+    public func openDataChannel(alongside peer: PeerConnectionID, port: UInt16?, transferID: String) {}
 }

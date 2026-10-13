@@ -27,6 +27,11 @@ final class PeerLoopbackTests: XCTestCase {
         let transport: NetworkPeerTransport
         let manager: PeerManager
         let stores: InMemoryPeerStores
+        /// 파일 전송(가짜 파일 읽기·저장소). 매니저와 같은 큐에서만 만진다.
+        let fileTransfer: FileTransferController
+        let reader = FakeFileReader()
+        let store = FakeFileStore()
+        let notifier = FakeFileOfferNotifier()
         let events = Locked<[PeerTransportEvent]>([])
         let messages = Locked<[PeerMessage]>([])
         let port = Locked<UInt16?>(nil)
@@ -41,9 +46,21 @@ final class PeerLoopbackTests: XCTestCase {
             manager = PeerManager(
                 deviceName: name, transport: transport, settings: stores, secrets: stores,
                 clock: SystemClock())
+            let fileSettings = InMemoryFileTransferSettings()
+            fileSettings.fileReceiveEnabled = true
+            fileTransfer = FileTransferController(
+                reader: reader, store: store, notifier: notifier, settings: fileSettings,
+                peers: manager, clock: SystemClock())
+            manager.dataChannelHandler = fileTransfer
             let box = Boxed(manager)
             let events = self.events, messages = self.messages, port = self.port
-            manager.onMessage = { message, _ in messages.with { $0.append(message) } }
+            let files = Boxed(fileTransfer)
+            manager.onMessage = { message, peer in
+                switch message {
+                case .fileOffer, .fileAnswer: files.value.handle(message, from: peer)
+                default: messages.with { $0.append(message) }
+                }
+            }
             transport.onListening = { p in port.with { $0 = p } }
             transport.start { event in
                 events.with { $0.append(event) }
@@ -172,5 +189,71 @@ final class PeerLoopbackTests: XCTestCase {
         transport.updateConfig(PeerTransportConfig(passphrase: "공유 암호", manualAddress: "127.0.0.1:\(p)"))
 
         XCTAssertTrue(wait { accepted.with { $0.count } >= 2 }, "멈춘 연결을 다시 걸지 않음")
+    }
+
+    // MARK: 파일 전송 (데이터 채널)
+
+    /// 몇 MB짜리 임의 바이트. 줄바꿈과 JSON처럼 보이는 바이트가 섞여 있다.
+    private func payload(megabytes: Int) -> Data {
+        var generator = SystemRandomNumberGenerator()
+        var data = Data((0..<(megabytes * 1024 * 1024)).map { _ in UInt8.random(in: 0...255, using: &generator) })
+        data.replaceSubrange(0..<16, with: Data("{\"type\":\"x\"}\n\n".utf8))
+        return data
+    }
+
+    /// `sender`가 `receiver`에게 파일을 보내고, 받는 쪽이 수락해 같은 바이트를 저장하는지 확인한다.
+    /// 전송 중에도 제어 연결 메시지가 오가는지 함께 본다.
+    private func assertFileTransfer(from sender: Node, to receiver: Node, receiverID: String,
+                                    file: StaticString = #filePath, line: UInt = #line) {
+        let url = URL(fileURLWithPath: "/tmp/큰 파일.bin")
+        let data = payload(megabytes: 5)
+        sender.queue.sync { sender.reader.files[url.path] = data }
+        sender.queue.sync { sender.fileTransfer.send(fileAt: url, to: receiverID) }
+
+        XCTAssertTrue(wait { receiver.queue.sync { receiver.fileTransfer.incomingOffer != nil } },
+                      "제안이 도착하지 않음", file: file, line: line)
+        receiver.queue.sync {
+            receiver.fileTransfer.accept(transferID: receiver.fileTransfer.incomingOffer!.transferID)
+        }
+        let input = PeerMessage.input(deviceID: receiver.manager.deviceID, sourceID: "com.apple.keylayout.ABC", isKorean: false)
+        receiver.broadcast(input)
+
+        XCTAssertTrue(wait(10) { receiver.queue.sync { receiver.store.saved.count == 1 } },
+                      "파일이 저장되지 않음: \(receiver.queue.sync { receiver.fileTransfer.status })", file: file, line: line)
+        receiver.queue.sync {
+            XCTAssertEqual(receiver.store.saved.first?.name, "큰 파일.bin", file: file, line: line)
+            XCTAssertTrue(receiver.store.saved.first?.data == data, "받은 바이트가 다름", file: file, line: line)
+        }
+        XCTAssertTrue(wait { sender.messages.with { $0.contains(input) } }, "전송 중 제어 메시지가 오가지 않음",
+                      file: file, line: line)
+        XCTAssertTrue(wait { sender.queue.sync { sender.fileTransfer.status == .sent(fileName: "큰 파일.bin") } },
+                      "보내는 쪽 상태: \(sender.queue.sync { sender.fileTransfer.status })", file: file, line: line)
+        // 데이터 채널은 피어로 등록되지 않는다.
+        XCTAssertEqual(sender.peers.count, 1, file: file, line: line)
+        XCTAssertEqual(receiver.peers.count, 1, file: file, line: line)
+    }
+
+    private func connectedPair() throws -> (client: Node, server: Node) {
+        let (server, port) = try makeServer(passphrase: "공유 암호")
+        let client = Node(id: "aaa-client", name: "클라이언트 맥", passphrase: "공유 암호",
+                          manualAddress: "127.0.0.1:\(port)")
+        client.applyConfig()
+        XCTAssertTrue(wait { !client.peers.isEmpty && !server.peers.isEmpty }, "hello 교환 실패")
+        XCTAssertTrue(wait { client.queue.sync { client.manager.listenPort != nil } })
+        return (client, server)
+    }
+
+    /// 보내는 쪽이 피어 연결을 건 쪽: 같은 주소로 데이터 채널을 건다.
+    func testFileTransferFromDialer() throws {
+        let (client, server) = try connectedPair()
+        defer { client.stop(); server.stop() }
+        assertFileTransfer(from: client, to: server, receiverID: "bbb-server")
+    }
+
+    /// 보내는 쪽이 연결을 받은 쪽: 상대 호스트 + 수락 답에 담긴 리스너 포트로 데이터 채널을 건다.
+    func testFileTransferFromListener() throws {
+        let (client, server) = try connectedPair()
+        defer { client.stop(); server.stop() }
+        assertFileTransfer(from: server, to: client, receiverID: "aaa-client")
     }
 }

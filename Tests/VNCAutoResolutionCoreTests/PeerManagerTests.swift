@@ -35,7 +35,7 @@ final class PeerManagerTests: XCTestCase {
     func testSendsHelloWhenConnected() {
         manager.handle(.connected(1, route: .manual, isOutbound: true))
         XCTAssertEqual(transport.messages(to: 1), [
-            .hello(deviceID: me, name: "내 맥", protocolVersion: 1, route: .manual, features: ["clipboard"]),
+            .hello(deviceID: me, name: "내 맥", protocolVersion: 1, route: .manual, features: ["clipboard", "fileTransfer"]),
         ])
     }
 
