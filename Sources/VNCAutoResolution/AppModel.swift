@@ -11,6 +11,7 @@ final class AppModel: ObservableObject {
     /// 클립보드 `changeCount` 확인 주기. 복사 직후 상대에서 바로 붙여 넣을 수 있게 짧게 둔다.
     private let clipboardPollInterval: Duration = .milliseconds(500)
     private var loginMessage: String?
+    private let fileOffers: UserNotificationFileOffers
 
     @Published private(set) var launchAtLogin: Bool
 
@@ -33,6 +34,7 @@ final class AppModel: ObservableObject {
         fileTransferSettings: FileTransferSettingsStoring = UserDefaultsFileTransferSettings()
     ) {
         self.detector = detector
+        self.fileOffers = fileOffers
         // 피어 전송: Bonjour 서비스 이름은 deviceID(기기마다 유일, 사전순 비교로 연결 주체 결정).
         let transport = NetworkPeerTransport(serviceName: peerSettings.deviceID, eventQueue: .main)
         core = AppCore(
@@ -59,6 +61,7 @@ final class AppModel: ObservableObject {
         viewerApps.onChange = { [weak self] in
             MainActor.assumeIsolated { self?.core.inputSync.viewerAppsChanged() }
         }
+        if fileTransferSettings.fileReceiveEnabled { fileOffers.requestAuthorization() }
         // 알림의 수락·거절 버튼 (메인 큐)
         fileOffers.onAnswer = { [weak self] transferID, accepted in
             MainActor.assumeIsolated {
@@ -151,7 +154,11 @@ final class AppModel: ObservableObject {
 
     var fileReceiveEnabled: Bool {
         get { core.fileTransfer.receiveEnabled }
-        set { objectWillChange.send(); core.fileTransfer.receiveEnabled = newValue }
+        set {
+            objectWillChange.send()
+            core.fileTransfer.receiveEnabled = newValue
+            if newValue { fileOffers.requestAuthorization() }
+        }
     }
 
     func canSendFile(to peer: PeerManager.Peer) -> Bool { core.fileTransfer.canSend(to: peer) }

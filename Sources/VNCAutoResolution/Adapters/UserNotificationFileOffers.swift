@@ -1,4 +1,5 @@
 import Foundation
+import os
 import UserNotifications
 import VNCAutoResolutionCore
 
@@ -15,7 +16,7 @@ final class UserNotificationFileOffers: NSObject, FileOfferNotifying, UNUserNoti
     private static let declineAction = "DECLINE"
 
     private let center: UNUserNotificationCenter?
-    private var authorizationRequested = false
+    private static let log = Logger(subsystem: "com.jeongsk.VNCAutoResolution", category: "filetransfer")
 
     override init() {
         center = Bundle.main.bundleIdentifier == nil ? nil : UNUserNotificationCenter.current()
@@ -31,18 +32,35 @@ final class UserNotificationFileOffers: NSObject, FileOfferNotifying, UNUserNoti
             intentIdentifiers: [])])
     }
 
+    /// 알림 권한을 묻는다(처음 한 번만 실제로 묻는다). 파일 받기를 켤 때와, 켜진 채로 앱이 시작될 때 부른다.
+    /// 제안이 온 뒤에 물으면 권한이 정해지기 전이라 첫 알림이 나가지 않는다.
+    func requestAuthorization() {
+        center?.requestAuthorization(options: [.alert, .sound]) { granted, error in
+            if let error { Self.log.error("알림 권한 요청 실패: \(error.localizedDescription, privacy: .public)") }
+            else if !granted { Self.log.info("알림 권한 없음: 메뉴에서만 응답할 수 있다") }
+        }
+    }
+
     func showOffer(_ offer: IncomingFileOffer) {
         guard let center else { return }
-        if !authorizationRequested {
-            authorizationRequested = true
-            center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        // 권한이 아직 정해지지 않았으면 물은 뒤에 보낸다.
+        center.getNotificationSettings { [self] settings in
+            guard settings.authorizationStatus == .notDetermined else { return post(offer) }
+            self.center?.requestAuthorization(options: [.alert, .sound]) { [self] granted, _ in
+                if granted { post(offer) }
+            }
         }
+    }
+
+    private func post(_ offer: IncomingFileOffer) {
         let content = UNMutableNotificationContent()
         content.title = "파일 받기 요청"
         content.body = FileOfferText.describe(offer)
         content.categoryIdentifier = Self.category
         content.sound = .default
-        center.add(UNNotificationRequest(identifier: offer.transferID, content: content, trigger: nil))
+        center?.add(UNNotificationRequest(identifier: offer.transferID, content: content, trigger: nil)) { error in
+            if let error { Self.log.error("알림 표시 실패: \(error.localizedDescription, privacy: .public)") }
+        }
     }
 
     func removeOffer(transferID: String) {

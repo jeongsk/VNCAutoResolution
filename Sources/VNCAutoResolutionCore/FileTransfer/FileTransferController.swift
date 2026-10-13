@@ -270,12 +270,12 @@ public final class FileTransferController: PeerDataChannelHandling {
     }
 
     public func dataChannelReceived(transferID: String, data: Data) {
-        guard var receiving, receiving.offer.transferID == transferID else { return }
-        receiving.buffer.append(data)
-        receiving.lastActivity = clock.now
-        self.receiving = receiving
+        guard self.receiving?.offer.transferID == transferID else { return }
+        // 제자리에서 이어 붙인다. 지역 변수로 복사해 붙이면 조각마다 버퍼 전체가 복사된다.
+        self.receiving!.buffer.append(data)
+        self.receiving!.lastActivity = clock.now
+        guard let receiving, receiving.buffer.count >= receiving.offer.size else { return }
         let size = receiving.offer.size
-        if receiving.buffer.count < size { return }
         // 다 받았거나 넘쳤다. 받는 쪽이 채널을 닫는다.
         self.receiving = nil
         peers.closeDataChannel(transferID: transferID)

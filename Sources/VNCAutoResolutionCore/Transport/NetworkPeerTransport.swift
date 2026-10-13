@@ -161,7 +161,9 @@ public final class NetworkPeerTransport: PeerTransporting, @unchecked Sendable {
                 self.emit(.dataChannelFailed(transferID: transferID))
                 return
             }
-            let connection = NWConnection(to: endpoint, using: self.parameters(passphrase: passphrase))
+            // 데이터 채널은 제어 연결(한/영 동기화·세션 신호)보다 낮은 우선순위로 보낸다.
+            let connection = NWConnection(
+                to: endpoint, using: self.parameters(passphrase: passphrase, serviceClass: .background))
             let channel = self.adopt(connection, isOutbound: true, targetKey: nil, dataTransferID: transferID)
             self.queue.asyncAfter(deadline: .now() + self.options.dialTimeout) { [weak self, weak channel] in
                 guard let self, let channel, self.connections[channel.id] === channel, !channel.announced else { return }
@@ -222,14 +224,15 @@ public final class NetworkPeerTransport: PeerTransporting, @unchecked Sendable {
         }
     }
 
-    private func parameters(passphrase: String) -> NWParameters {
+    private func parameters(passphrase: String,
+                            serviceClass: NWParameters.ServiceClass = .responsiveData) -> NWParameters {
         let tcp = NWProtocolTCP.Options()
         tcp.noDelay = true
         tcp.enableKeepalive = true
         tcp.keepaliveIdle = 30
         tcp.connectionTimeout = 5
         let params = NWParameters(tls: PairingKey.tlsOptions(passphrase: passphrase), tcp: tcp)
-        params.serviceClass = .responsiveData
+        params.serviceClass = serviceClass
         params.allowLocalEndpointReuse = true
         return params
     }
