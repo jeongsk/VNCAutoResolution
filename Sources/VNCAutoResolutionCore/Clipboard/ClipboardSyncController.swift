@@ -7,7 +7,7 @@ import os
 /// 스레드: 메인 스레드 전용 (PeerManager와 같다).
 public final class ClipboardSyncController {
     /// 보낼 수 있는 텍스트 상한(UTF-8 바이트).
-    public static let maxTextBytes = 256 * 1024
+    public static let maxTextBytes = PeerMessage.maxClipboardTextBytes
 
     /// 비밀번호 관리자 등이 "공유하지 말 것"으로 표시하는 타입 (nspasteboard.org).
     static let concealedTypes: Set<String> = [
@@ -34,8 +34,9 @@ public final class ClipboardSyncController {
     /// 연결된 피어의 클립보드 기능 지원 여부.
     public enum PeerSupport: Equatable {
         case noPeers
-        case supported     // 하나 이상 지원
-        case needsUpdate   // 연결된 피어가 모두 예전 버전
+        case supported         // 모두 지원
+        case partlySupported   // 일부만 지원 (예전 버전 피어에는 보내지 않는다)
+        case needsUpdate       // 연결된 피어가 모두 예전 버전
     }
 
     static let log = Logger(subsystem: "com.jeongsk.VNCAutoResolution", category: "clipboard")
@@ -81,7 +82,9 @@ public final class ClipboardSyncController {
     public var peerSupport: PeerSupport {
         let connected = peers.peers
         if connected.isEmpty { return .noPeers }
-        return connected.contains(where: Self.supportsClipboard) ? .supported : .needsUpdate
+        let supporting = connected.filter(Self.supportsClipboard).count
+        if supporting == connected.count { return .supported }
+        return supporting == 0 ? .needsUpdate : .partlySupported
     }
 
     // MARK: 이벤트
@@ -102,7 +105,7 @@ public final class ClipboardSyncController {
         switch peerSupport {
         case .noPeers: return
         case .needsUpdate: return skip(.peerNeedsUpdate)
-        case .supported: break
+        case .supported, .partlySupported: break
         }
 
         Self.log.debug("send: \(text.utf8.count, privacy: .public)바이트")
@@ -113,11 +116,9 @@ public final class ClipboardSyncController {
     /// 피어가 보낸 메시지(hello 이후 검증된 것)를 처리한다.
     public func handle(_ message: PeerMessage, from peer: PeerManager.Peer) {
         guard case .clipboard(_, let text) = message else { return }
-        guard enabled, inputSync.isRemoteSessionActive else {
-            Self.log.debug("recv: 공유 조건 아님")
-            return
-        }
-        guard text.utf8.count <= Self.maxTextBytes else { return }
+        guard enabled else { return }
+        guard inputSync.isRemoteSessionActive else { return skip(.noSession) }
+        guard text.utf8.count <= Self.maxTextBytes else { return skip(.tooLarge) }
         Self.log.debug("recv: \(text.utf8.count, privacy: .public)바이트 적용")
         clipboard.write(text: text)
         // 방금 쓴 내용이 다시 보내지지 않도록 쓴 뒤의 값을 기준으로 삼는다(+1이라고 가정하지 않는다).

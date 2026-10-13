@@ -222,6 +222,11 @@ final class ClipboardSyncTests: XCTestCase {
         XCTAssertEqual(sync.lastStatus, .skipped(.peerNeedsUpdate))
     }
 
+    func testMixedPeersArePartlySupported() {
+        connectPeer(id: 2, deviceID: "bbb", features: [])
+        XCTAssertEqual(sync.peerSupport, .partlySupported)
+    }
+
     func testPeerSupportStates() {
         XCTAssertEqual(sync.peerSupport, .supported)
         core.peers.handle(.disconnected(1))
@@ -250,6 +255,7 @@ final class ClipboardSyncTests: XCTestCase {
     func testReceiveWithoutSessionIsNotApplied() {
         receive("받은 글")
         XCTAssertEqual(clipboard.written, [])
+        XCTAssertEqual(sync.lastStatus, .skipped(.noSession))
     }
 
     func testReceiverToggleOffIsNotApplied() {
@@ -257,12 +263,14 @@ final class ClipboardSyncTests: XCTestCase {
         startViewer()
         receive("받은 글")
         XCTAssertEqual(clipboard.written, [])
+        XCTAssertEqual(sync.lastStatus, .none)
     }
 
     func testReceivedOverLimitIsNotApplied() {
         startViewer()
         receive(String(repeating: "a", count: ClipboardSyncController.maxTextBytes + 1))
         XCTAssertEqual(clipboard.written, [])
+        XCTAssertEqual(sync.lastStatus, .skipped(.tooLarge))
     }
 
     func testSpoofedDeviceIDIsIgnored() {

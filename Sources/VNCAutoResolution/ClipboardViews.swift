@@ -8,11 +8,15 @@ struct ClipboardMenuSection: View {
     private var needsUpdate: Bool { state.clipboardPeerSupport == .needsUpdate }
 
     var body: some View {
+        // 이미 켜 둔 상태면 끌 수는 있어야 하므로, 꺼져 있을 때만 비활성화한다.
         Toggle("클립보드 공유", isOn: $state.clipboardSyncEnabled)
-            .disabled(needsUpdate)
-        if needsUpdate {
-            Text("상대 Mac 앱 업데이트 필요")
-        } else if state.clipboardSyncEnabled, let status = Self.statusLabel(state.clipboardStatus) {
+            .disabled(needsUpdate && !state.clipboardSyncEnabled)
+        switch state.clipboardPeerSupport {
+        case .needsUpdate: Text("상대 Mac 앱 업데이트 필요")
+        case .partlySupported: Text("일부 Mac은 앱 업데이트 필요")
+        case .noPeers, .supported: EmptyView()
+        }
+        if !needsUpdate, state.clipboardSyncEnabled, let status = Self.statusLabel(state.clipboardStatus) {
             Text("클립보드: \(status)")
         }
     }
@@ -25,7 +29,7 @@ struct ClipboardMenuSection: View {
         case .skipped(let reason):
             switch reason {
             case .noSession: return "건너뜀 (원격 세션 아님)"
-            case .tooLarge: return "건너뜀 (256KB 초과)"
+            case .tooLarge: return "건너뜀 (\(ClipboardSyncController.maxTextBytes / 1024)KB 초과)"
             case .concealed: return "건너뜀 (비밀번호·임시 항목)"
             case .peerNeedsUpdate: return "건너뜀 (상대 Mac 앱 업데이트 필요)"
             }

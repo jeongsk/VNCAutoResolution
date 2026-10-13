@@ -23,6 +23,8 @@ public enum PeerMessage: Equatable, Sendable {
     case clipboard(deviceID: String, text: String)
 
     public static let protocolVersion = 1
+    /// `clipboard` 텍스트 상한(UTF-8 바이트). 메시지 한 줄 상한(`PeerManager.Limits`)이 이 값에 맞춰 잡힌다.
+    public static let maxClipboardTextBytes = 256 * 1024
 
     public var deviceID: String {
         switch self {

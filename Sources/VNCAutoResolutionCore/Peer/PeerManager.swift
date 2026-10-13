@@ -20,7 +20,7 @@ public final class PeerManager {
     public struct Limits {
         /// 메시지 한 줄 상한. 클립보드 텍스트 상한에 JSON 이스케이프 최악의 경우(제어 문자 1바이트 → `\u00XX` 6바이트)와
         /// 나머지 필드를 더한 크기다. 상한 안의 클립보드는 어떤 내용이든 한 줄에 들어간다.
-        public var maxMessageBytes = ClipboardSyncController.maxTextBytes * 6 + 4096
+        public var maxMessageBytes = PeerMessage.maxClipboardTextBytes * 6 + 4096
         public var maxMessagesPerWindow = 200
         public var window: TimeInterval = 1
         public var maxNameLength = 100
