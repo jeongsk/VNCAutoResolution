@@ -17,7 +17,7 @@ final class FakePeerTransport: PeerTransporting {
     /// 연결 `id`로 보낸 메시지들.
     func messages(to id: PeerConnectionID) -> [PeerMessage] {
         sent.filter { $0.id == id }.flatMap { entry -> [PeerMessage] in
-            var framer = MessageFramer()
+            var framer = MessageFramer(maxLineLength: PeerManager.Limits().maxMessageBytes)
             return framer.append(entry.data).compactMap(PeerCodec.decode)
         }
     }

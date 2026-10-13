@@ -11,12 +11,16 @@ public final class PeerManager {
         public let deviceID: String
         public let name: String
         public let route: PeerRoute
+        /// hello로 알린 지원 기능(`PeerFeature`).
+        public let features: Set<String>
         public var id: String { deviceID }
     }
 
     /// 비정상 피어 방어 한도.
     public struct Limits {
-        public var maxMessageBytes = 4096
+        /// 메시지 한 줄 상한. 클립보드 텍스트 상한에 JSON 이스케이프 최악의 경우(제어 문자 1바이트 → `\u00XX` 6바이트)와
+        /// 나머지 필드를 더한 크기다. 상한 안의 클립보드는 어떤 내용이든 한 줄에 들어간다.
+        public var maxMessageBytes = ClipboardSyncController.maxTextBytes * 6 + 4096
         public var maxMessagesPerWindow = 200
         public var window: TimeInterval = 1
         public var maxNameLength = 100
@@ -48,7 +52,7 @@ public final class PeerManager {
 
     /// 피어 목록/상태가 바뀔 때마다 불린다.
     public var onChange: (() -> Void)?
-    /// hello 이후 피어가 보낸 `input`/`session`/`display` 메시지. 코어(AppCore)가 구독한다.
+    /// hello 이후 피어가 보낸 `input`/`session`/`display`/`clipboard` 메시지. 코어(AppCore)가 구독한다.
     public var onMessage: ((PeerMessage, Peer) -> Void)?
 
     private let transport: PeerTransporting
@@ -99,8 +103,14 @@ public final class PeerManager {
 
     /// 연결된 모든 피어에게 보낸다.
     public func broadcast(_ message: PeerMessage) {
+        broadcast(message, where: { _ in true })
+    }
+
+    /// 조건에 맞는 피어에게만 보낸다. (예: 기능을 지원하는 피어)
+    public func broadcast(_ message: PeerMessage, where include: (Peer) -> Bool) {
         let data = PeerCodec.encode(message)
-        for connection in connections.values where connection.peer != nil {
+        for connection in connections.values {
+            guard let peer = connection.peer, include(peer) else { continue }
             transport.send(data, to: connection.id)
         }
     }
@@ -121,7 +131,8 @@ public final class PeerManager {
                 deviceID: deviceID,
                 name: deviceName,
                 protocolVersion: PeerMessage.protocolVersion,
-                route: isOutbound ? route : nil
+                route: isOutbound ? route : nil,
+                features: PeerFeature.supported
             )), to: id)
 
         case .received(let id, let data):
@@ -166,16 +177,17 @@ public final class PeerManager {
         }
 
         switch message {
-        case .hello(let peerID, let name, let version, let route):
+        case .hello(let peerID, let name, let version, let route, let features):
             guard connection.peer == nil else { ignoredMessageCount += 1; return }
             guard version == PeerMessage.protocolVersion,
                   !peerID.isEmpty, !name.isEmpty, name.count <= limits.maxNameLength else {
                 drop(id)
                 return
             }
-            register(connection, deviceID: peerID, name: name, route: connection.outboundRoute ?? route ?? .manual)
+            register(connection, deviceID: peerID, name: name, route: connection.outboundRoute ?? route ?? .manual,
+                     features: Set(features))
 
-        case .input, .session, .display:
+        case .input, .session, .display, .clipboard:
             // hello 전이거나, hello에서 밝힌 deviceID와 다른 메시지(위장·중계)는 무시한다.
             guard let peer = connection.peer, peer.deviceID == message.deviceID else {
                 ignoredMessageCount += 1
@@ -186,8 +198,10 @@ public final class PeerManager {
     }
 
     /// hello를 마친 연결을 피어로 등록한다. 같은 deviceID의 기존 연결이 있으면 하나만 남긴다.
-    private func register(_ connection: Connection, deviceID peerID: String, name: String, route: PeerRoute) {
-        let peer = Peer(deviceID: peerID, name: name, route: route)
+    private func register(
+        _ connection: Connection, deviceID peerID: String, name: String, route: PeerRoute, features: Set<String>
+    ) {
+        let peer = Peer(deviceID: peerID, name: name, route: route, features: features)
         guard let existing = connections.values.first(where: { $0.peer?.deviceID == peerID && $0.id != connection.id }),
               let existingPeer = existing.peer else {
             connections[connection.id]?.peer = peer

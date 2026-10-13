@@ -6,6 +6,8 @@ public final class AppCore {
     public let inputSync: InputSyncController
     /// 클라이언트 화면 정보 송수신. 가상 디스플레이(#9)는 `clientDisplay`를 읽는다.
     public let clientDisplayController: ClientDisplayController
+    /// 텍스트 클립보드 공유. 앱이 짧은 주기로 `clipboardSync.poll()`을 부른다.
+    public let clipboardSync: ClipboardSyncController
 
     /// 클라이언트 화면 크기의 가상 디스플레이. 있는 동안 `resolution`은 멈춘다.
     public let virtualDisplay: VirtualDisplayController
@@ -37,7 +39,9 @@ public final class AppCore {
         inputSyncSettings: InputSyncSettingsStoring? = nil,
         screen: ScreenReading? = nil,
         virtualDisplay: VirtualDisplayControlling? = nil,
-        virtualDisplaySettings: VirtualDisplaySettingsStoring? = nil
+        virtualDisplaySettings: VirtualDisplaySettingsStoring? = nil,
+        clipboard: ClipboardAccessing? = nil,
+        clipboardSettings: ClipboardSettingsStoring? = nil
     ) {
         self.vnc = vnc
         self.resolution = ResolutionController(display: display, settings: settings, clock: clock)
@@ -53,6 +57,9 @@ public final class AppCore {
             settings: inputSyncSettings ?? InMemoryInputSyncSettings(), peers: peers, clock: clock)
         self.clientDisplayController = ClientDisplayController(
             screen: screen ?? NullScreenReader(), peers: peers, inputSync: inputSync)
+        self.clipboardSync = ClipboardSyncController(
+            clipboard: clipboard ?? NullClipboard(),
+            settings: clipboardSettings ?? InMemoryClipboardSettings(), peers: peers, inputSync: inputSync)
 
         // 가상 디스플레이와 해상도 컨트롤러는 서로 배타적이다. 세션 판단은 해상도 컨트롤러의 것(디바운스 포함)을 같이 쓴다.
         // 가상 디스플레이가 있는 동안 해상도 컨트롤러는 멈추고, 새 세션이 시작되면 가상 디스플레이가 먼저 자리를 잡는다.
@@ -73,9 +80,15 @@ public final class AppCore {
         // 피어 메시지·목록 변화를 입력 동기화에 연결한다. 앱은 `onStateChange`로 UI 갱신만 받는다.
         let sync = inputSync
         let display = clientDisplayController
+        let clipboardSync = self.clipboardSync
         peers.onMessage = { message, peer in
-            if case .display = message { display.handle(message, from: peer) } else { sync.handle(message, from: peer) }
+            switch message {
+            case .display: display.handle(message, from: peer)
+            case .clipboard: clipboardSync.handle(message, from: peer)
+            case .hello, .input, .session: sync.handle(message, from: peer)
+            }
         }
+        clipboardSync.onChange = { [weak self] in self?.onStateChange?() }
         peers.onChange = { [weak self] in
             self?.inputSync.peersChanged()
             self?.clientDisplayController.refresh()   // 연결이 끊긴 피어의 화면 정보를 비운다.

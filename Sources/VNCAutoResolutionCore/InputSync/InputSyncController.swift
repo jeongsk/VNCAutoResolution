@@ -105,11 +105,15 @@ public final class InputSyncController {
         return peerSessions.values.contains { now.timeIntervalSince($0) < sessionTTL }
     }
 
+    /// 원격 세션 중인지(로컬 세션 또는 유효한 피어 세션 신호). 입력 동기화 설정과 무관한 세션 게이트다.
+    /// (클립보드 공유도 같은 게이트를 쓴다)
+    public var isRemoteSessionActive: Bool { isLocalSessionActive || isPeerSessionActive }
+
     /// 지금 동기화가 동작해도 되는 상태인지.
     public var syncAllowed: Bool {
         guard enabled else { return false }
         guard onlyDuringRemote else { return true }
-        return isLocalSessionActive || isPeerSessionActive
+        return isRemoteSessionActive
     }
 
     public var status: Status {
@@ -185,8 +189,8 @@ public final class InputSyncController {
         case .input(_, let sourceID, let isKorean):
             applyRemote(id: sourceID, isKorean: isKorean)
             onChange?()
-        case .hello, .display:
-            break   // display는 코어(ClientDisplayController)가 처리한다.
+        case .hello, .display, .clipboard:
+            break   // display·clipboard는 코어의 다른 컨트롤러가 처리한다.
         }
     }
 

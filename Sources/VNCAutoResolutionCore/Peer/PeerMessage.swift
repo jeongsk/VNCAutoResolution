@@ -2,33 +2,39 @@ import Foundation
 
 /// 피어 사이에 오가는 메시지. 한 줄짜리 JSON(줄바꿈 구분)으로 직렬화한다.
 ///
-///     hello   { deviceID, name, protocolVersion }   (+ 선택: route)
+///     hello   { deviceID, name, protocolVersion }   (+ 선택: route, features)
 ///     input   { deviceID, sourceID, isKorean }
 ///     session { deviceID, active }
 ///     display { deviceID, width, height, scale }   (클라이언트 메인 화면: 포인트 크기 + 배율)
+///     clipboard { deviceID, text }                (텍스트 클립보드)
 ///
-/// `input`과 `session`은 입력 동기화(#5), `display`는 클라이언트 화면 정보(#8)에서 쓴다.
+/// `input`과 `session`은 입력 동기화(#5), `display`는 클라이언트 화면 정보(#8), `clipboard`는 클립보드 공유(#17)에서 쓴다.
+/// 새 기능은 `protocolVersion`을 올리지 않고 hello의 `features`로 알린다. 예전 버전은 모르는 필드·메시지를 무시한다.
 /// 모르는 `type`은 디코딩 실패(nil)로 처리되고, `PeerManager`가 그 줄만 버리고 연결은 유지한다.
 public enum PeerMessage: Equatable, Sendable {
     /// `route`: 보낸 쪽이 이 연결을 어떤 경로로 걸었는지(걸린 쪽의 메뉴 표시용). 선택 필드.
-    case hello(deviceID: String, name: String, protocolVersion: Int, route: PeerRoute?)
+    /// `features`: 보낸 쪽이 지원하는 기능 이름(`PeerFeature`). 선택 필드이고, 없으면 빈 목록이다.
+    case hello(deviceID: String, name: String, protocolVersion: Int, route: PeerRoute?, features: [String] = [])
     case input(deviceID: String, sourceID: String, isKorean: Bool)
     case session(deviceID: String, active: Bool)
     /// 보낸 쪽(뷰어 앱이 실행 중인 클라이언트)의 메인 화면. width·height는 포인트, scale은 배율.
     case display(deviceID: String, width: Int, height: Int, scale: Double)
+    /// 보낸 쪽 클립보드의 일반 텍스트.
+    case clipboard(deviceID: String, text: String)
 
     public static let protocolVersion = 1
 
     public var deviceID: String {
         switch self {
-        case .hello(let id, _, _, _), .input(let id, _, _), .session(let id, _), .display(let id, _, _, _): return id
+        case .hello(let id, _, _, _, _), .input(let id, _, _), .session(let id, _), .display(let id, _, _, _),
+             .clipboard(let id, _): return id
         }
     }
 }
 
 extension PeerMessage: Codable {
     private enum CodingKeys: String, CodingKey {
-        case type, deviceID, name, protocolVersion, route, sourceID, isKorean, active, width, height, scale
+        case type, deviceID, name, protocolVersion, route, features, sourceID, isKorean, active, width, height, scale, text
     }
 
     public init(from decoder: Decoder) throws {
@@ -40,7 +46,9 @@ extension PeerMessage: Codable {
                 deviceID: deviceID,
                 name: try c.decode(String.self, forKey: .name),
                 protocolVersion: try c.decode(Int.self, forKey: .protocolVersion),
-                route: try? c.decodeIfPresent(PeerRoute.self, forKey: .route)
+                route: try? c.decodeIfPresent(PeerRoute.self, forKey: .route),
+                // 모르는 기능 이름은 그대로 두고, 형식이 틀리면 없는 것으로 본다(hello 전체를 버리지 않는다).
+                features: (try? c.decodeIfPresent([String].self, forKey: .features)) ?? []
             )
         case "input":
             self = .input(
@@ -57,6 +65,8 @@ extension PeerMessage: Codable {
                 height: try c.decode(Int.self, forKey: .height),
                 scale: try c.decode(Double.self, forKey: .scale)
             )
+        case "clipboard":
+            self = .clipboard(deviceID: deviceID, text: try c.decode(String.self, forKey: .text))
         case let other:
             throw DecodingError.dataCorruptedError(
                 forKey: .type, in: c, debugDescription: "알 수 없는 메시지 종류: \(other)")
@@ -67,11 +77,12 @@ extension PeerMessage: Codable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(deviceID, forKey: .deviceID)
         switch self {
-        case .hello(_, let name, let version, let route):
+        case .hello(_, let name, let version, let route, let features):
             try c.encode("hello", forKey: .type)
             try c.encode(name, forKey: .name)
             try c.encode(version, forKey: .protocolVersion)
             try c.encodeIfPresent(route, forKey: .route)
+            if !features.isEmpty { try c.encode(features, forKey: .features) }
         case .input(_, let sourceID, let isKorean):
             try c.encode("input", forKey: .type)
             try c.encode(sourceID, forKey: .sourceID)
@@ -84,8 +95,18 @@ extension PeerMessage: Codable {
             try c.encode(width, forKey: .width)
             try c.encode(height, forKey: .height)
             try c.encode(scale, forKey: .scale)
+        case .clipboard(_, let text):
+            try c.encode("clipboard", forKey: .type)
+            try c.encode(text, forKey: .text)
         }
     }
+}
+
+/// hello의 `features`에 쓰는 기능 이름.
+public enum PeerFeature {
+    public static let clipboard = "clipboard"
+    /// 이 버전이 지원하는 기능. hello로 알린다.
+    public static let supported = [clipboard]
 }
 
 /// 메시지 <-> 한 줄 JSON 변환.

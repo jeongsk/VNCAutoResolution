@@ -96,6 +96,10 @@ struct MenuContent: View {
 
         Divider()
 
+        ClipboardMenuSection(state: state)
+
+        Divider()
+
         Toggle("로그인 시 실행", isOn: Binding(
             get: { state.launchAtLogin },
             set: { state.setLaunchAtLogin($0) }

@@ -8,6 +8,8 @@ final class AppModel: ObservableObject {
     private let core: AppCore
     private let detector: VNCDetecting
     private let pollInterval: Duration = .seconds(2)
+    /// 클립보드 `changeCount` 확인 주기. 복사 직후 상대에서 바로 붙여 넣을 수 있게 짧게 둔다.
+    private let clipboardPollInterval: Duration = .milliseconds(500)
     private var loginMessage: String?
 
     @Published private(set) var launchAtLogin: Bool
@@ -24,7 +26,9 @@ final class AppModel: ObservableObject {
         inputSyncSettings: InputSyncSettingsStoring = UserDefaultsInputSyncSettings(),
         screen: ScreenReading = MainScreenReader(),
         virtualDisplay: VirtualDisplayControlling = RuntimeVirtualDisplay(),
-        virtualDisplaySettings: VirtualDisplaySettingsStoring = UserDefaultsVirtualDisplaySettings()
+        virtualDisplaySettings: VirtualDisplaySettingsStoring = UserDefaultsVirtualDisplaySettings(),
+        clipboard: ClipboardAccessing = GeneralPasteboard(),
+        clipboardSettings: ClipboardSettingsStoring = UserDefaultsClipboardSettings()
     ) {
         self.detector = detector
         // 피어 전송: Bonjour 서비스 이름은 deviceID(기기마다 유일, 사전순 비교로 연결 주체 결정).
@@ -34,7 +38,8 @@ final class AppModel: ObservableObject {
             peerTransport: transport, peerSettings: peerSettings, passphraseStore: passphraseStore,
             deviceName: Host.current().localizedName ?? "Mac",
             inputSource: inputSource, viewerApps: viewerApps, inputSyncSettings: inputSyncSettings,
-            screen: screen, virtualDisplay: virtualDisplay, virtualDisplaySettings: virtualDisplaySettings)
+            screen: screen, virtualDisplay: virtualDisplay, virtualDisplaySettings: virtualDisplaySettings,
+            clipboard: clipboard, clipboardSettings: clipboardSettings)
         launchAtLogin = LoginItem.isEnabled
         // 모니터·더미 플러그 연결/해제 등 디스플레이 구성 변경 시 해상도 목록을 갱신한다.
         NotificationCenter.default.addObserver(
@@ -52,6 +57,7 @@ final class AppModel: ObservableObject {
         }
         startPeers(transport)
         Task { await pollLoop() }
+        Task { await clipboardPollLoop() }
     }
 
     /// 전송 이벤트(메인 큐로 전달됨)를 코어 피어 매니저로 연결하고 저장된 설정으로 시작한다.
@@ -70,6 +76,13 @@ final class AppModel: ObservableObject {
             objectWillChange.send()
             core.handle(clients: found)
             try? await Task.sleep(for: pollInterval)
+        }
+    }
+
+    private func clipboardPollLoop() async {
+        while !Task.isCancelled {
+            core.clipboardSync.poll()
+            try? await Task.sleep(for: clipboardPollInterval)
         }
     }
 
@@ -110,6 +123,16 @@ final class AppModel: ObservableObject {
     var inputSyncStatus: InputSyncController.Status { core.inputSync.status }
     var currentInput: InputState? { core.inputSync.currentInput }
     var inputSyncMessage: String { core.inputSync.lastMessage }
+
+    // MARK: 클립보드 공유
+
+    var clipboardStatus: ClipboardSyncController.Status { core.clipboardSync.lastStatus }
+    var clipboardPeerSupport: ClipboardSyncController.PeerSupport { core.clipboardSync.peerSupport }
+
+    var clipboardSyncEnabled: Bool {
+        get { core.clipboardSync.enabled }
+        set { objectWillChange.send(); core.clipboardSync.enabled = newValue }
+    }
 
     // MARK: 클라이언트 화면 (호스트가 피어에게서 받은 것)
 

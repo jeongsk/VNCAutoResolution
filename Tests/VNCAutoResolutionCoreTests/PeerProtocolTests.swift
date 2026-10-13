@@ -9,6 +9,8 @@ final class PeerProtocolTests: XCTestCase {
             .hello(deviceID: "a", name: "맥", protocolVersion: 1, route: .bonjour),
             .input(deviceID: "a", sourceID: "com.apple.keylayout.ABC", isKorean: false),
             .session(deviceID: "a", active: true),
+            .hello(deviceID: "a", name: "맥", protocolVersion: 1, route: nil, features: ["clipboard"]),
+            .clipboard(deviceID: "a", text: "여러 줄\n\"따옴표\" / 경로"),
         ]
         for message in messages {
             let data = PeerCodec.encode(message)
@@ -23,6 +25,26 @@ final class PeerProtocolTests: XCTestCase {
         XCTAssertEqual(
             PeerCodec.decode(Data(line.utf8)),
             .hello(deviceID: "d1", name: "N", protocolVersion: 1, route: nil))
+    }
+
+    func testHelloWithFeaturesWireFormat() throws {
+        let line = #"{"type":"hello","deviceID":"d1","name":"N","protocolVersion":1,"features":["clipboard","futureThing"]}"#
+        // 모르는 기능 이름이 있어도 hello 전체는 디코딩된다.
+        XCTAssertEqual(
+            PeerCodec.decode(Data(line.utf8)),
+            .hello(deviceID: "d1", name: "N", protocolVersion: 1, route: nil, features: ["clipboard", "futureThing"]))
+    }
+
+    func testHelloWithMalformedFeaturesStillDecodes() throws {
+        let line = #"{"type":"hello","deviceID":"d1","name":"N","protocolVersion":1,"features":"clipboard"}"#
+        XCTAssertEqual(
+            PeerCodec.decode(Data(line.utf8)),
+            .hello(deviceID: "d1", name: "N", protocolVersion: 1, route: nil))
+    }
+
+    func testClipboardWireFormat() throws {
+        let line = #"{"type":"clipboard","deviceID":"d1","text":"안녕"}"#
+        XCTAssertEqual(PeerCodec.decode(Data(line.utf8)), .clipboard(deviceID: "d1", text: "안녕"))
     }
 
     func testFramerHandlesSplitAndMergedChunks() {
