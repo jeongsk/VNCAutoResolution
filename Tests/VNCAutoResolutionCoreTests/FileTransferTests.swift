@@ -366,6 +366,31 @@ final class FileTransferTests: XCTestCase {
         XCTAssertEqual(transport.closed, [8])
     }
 
+    func testStalledDataChannelTimesOutAndFreesReceiver() {
+        receiveOffer()
+        transfer.accept(transferID: offerID)
+        deliver(content.prefix(10))
+        clock.advance(by: transfer.answerTimeout + 1)
+        transfer.tick()
+        XCTAssertEqual(transfer.status, .receiveFailed(fileName: "사진.png", reason: .interrupted))
+        XCTAssertEqual(transport.closed, [8])
+        // 다음 제안을 받을 수 있다.
+        transport.clearSent()
+        receive(.fileOffer(deviceID: peerID, transferID: "t-2", name: "b", size: 1, sha256: "00"))
+        XCTAssertEqual(transfer.incomingOffer?.transferID, "t-2")
+    }
+
+    func testDataKeepsStalledTimerAlive() {
+        receiveOffer()
+        transfer.accept(transferID: offerID)
+        deliver(content.prefix(10))
+        clock.advance(by: transfer.answerTimeout - 1)
+        core.peers.handle(.received(8, content.dropFirst(10).prefix(10)))
+        clock.advance(by: 2)
+        transfer.tick()
+        XCTAssertEqual(transfer.status, .receiving(fileName: "사진.png"))
+    }
+
     func testPeerConnectionsStillWorkWhileReceiving() {
         receiveOffer()
         transfer.accept(transferID: offerID)
@@ -382,6 +407,8 @@ final class FileTransferTests: XCTestCase {
         XCTAssertEqual(FileNames.sanitize(".bashrc"), "bashrc")
         XCTAssertEqual(FileNames.sanitize("a:b/c.txt"), "abc.txt")
         XCTAssertEqual(FileNames.sanitize("줄\n바꿈\u{0}.txt"), "줄바꿈.txt")
+        XCTAssertEqual(FileNames.sanitize(". .x"), "x")
+        XCTAssertEqual(FileNames.sanitize(" . . "), FileNames.fallback)
         XCTAssertEqual(FileNames.sanitize("..."), FileNames.fallback)
         XCTAssertEqual(FileNames.sanitize(""), FileNames.fallback)
         XCTAssertEqual(FileNames.sanitize("보고서.pdf"), "보고서.pdf")

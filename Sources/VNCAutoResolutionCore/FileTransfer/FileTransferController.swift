@@ -77,7 +77,8 @@ public final class FileTransferController: PeerDataChannelHandling {
     private struct Receiving {
         let offer: IncomingFileOffer
         let sha256: String
-        let acceptedAt: Date
+        /// 수락한 시각, 채널이 열린 뒤에는 마지막으로 바이트를 받은 시각.
+        var lastActivity: Date
         var channelOpened = false
         var buffer = Data()
     }
@@ -162,7 +163,7 @@ public final class FileTransferController: PeerDataChannelHandling {
         self.pending = nil
         incomingOffer = nil
         notifier.removeOffer(transferID: transferID)
-        receiving = Receiving(offer: pending.offer, sha256: pending.sha256, acceptedAt: clock.now)
+        receiving = Receiving(offer: pending.offer, sha256: pending.sha256, lastActivity: clock.now)
         peers.send(.fileAnswer(deviceID: peers.deviceID, transferID: transferID, accepted: true, reason: nil,
                                port: peers.listenPort.map(Int.init)),
                    toDeviceID: pending.offer.deviceID)
@@ -232,8 +233,10 @@ public final class FileTransferController: PeerDataChannelHandling {
             answer(pending.offer.deviceID, pending.offer.transferID, declined: .timeout)
             setStatus(.receiveFailed(fileName: pending.offer.fileName, reason: .timedOut))
         }
-        if let receiving, !receiving.channelOpened, now.timeIntervalSince(receiving.acceptedAt) >= answerTimeout {
+        // 데이터 채널이 오지 않거나, 열린 뒤 바이트가 끊기면 정리한다. (그대로 두면 새 제안을 계속 busy로 거절한다)
+        if let receiving, now.timeIntervalSince(receiving.lastActivity) >= answerTimeout {
             self.receiving = nil
+            peers.closeDataChannel(transferID: receiving.offer.transferID)
             setStatus(.receiveFailed(fileName: receiving.offer.fileName, reason: .interrupted))
         }
         if let outgoing, !outgoing.accepted, now.timeIntervalSince(outgoing.offeredAt) >= senderWaitTimeout {
@@ -261,6 +264,7 @@ public final class FileTransferController: PeerDataChannelHandling {
         guard var receiving, receiving.offer.transferID == transferID, receiving.offer.deviceID == deviceID,
               !receiving.channelOpened else { return false }
         receiving.channelOpened = true
+        receiving.lastActivity = clock.now
         self.receiving = receiving
         return true
     }
@@ -268,6 +272,7 @@ public final class FileTransferController: PeerDataChannelHandling {
     public func dataChannelReceived(transferID: String, data: Data) {
         guard var receiving, receiving.offer.transferID == transferID else { return }
         receiving.buffer.append(data)
+        receiving.lastActivity = clock.now
         self.receiving = receiving
         let size = receiving.offer.size
         if receiving.buffer.count < size { return }
@@ -307,7 +312,8 @@ public final class FileTransferController: PeerDataChannelHandling {
 
     public func dataChannelClosed(transferID: String) {
         if let outgoing, outgoing.transferID == transferID {
-            // 받는 쪽은 다 받으면 채널을 닫는다. 그 전에 끊겼는지는 이번 단계에서 구분하지 않는다(#19에서 진행률로 다룬다).
+            // 받는 쪽은 다 받으면 채널을 닫는다. 받는 쪽의 검증·저장 실패나 중간 끊김은 이번 단계에서 구분하지 않는다.
+            // (보내는 쪽 "보냄"은 바이트를 다 넘겼다는 뜻이다. 결과 확인은 #19에서 진행률·취소와 함께 다룬다)
             self.outgoing = nil
             setStatus(outgoing.channelOpened ? .sent(fileName: outgoing.fileName)
                                              : .sendFailed(fileName: outgoing.fileName, reason: .connectionFailed))

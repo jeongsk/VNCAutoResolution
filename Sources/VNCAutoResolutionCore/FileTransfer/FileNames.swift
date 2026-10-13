@@ -10,16 +10,17 @@ public enum FileNames {
         var cleaned = String(String.UnicodeScalarView(name.unicodeScalars.filter {
             $0 != "/" && $0 != ":" && !CharacterSet.controlCharacters.contains($0)
         }))
-        cleaned = cleaned.trimmingCharacters(in: .whitespaces)
-        while cleaned.hasPrefix(".") { cleaned.removeFirst() }
+        // 공백과 점이 섞여 있어도("`. .x`") 숨김 파일이 되지 않도록 함께 없앤다.
+        while let first = cleaned.first, first == "." || first.isWhitespace { cleaned.removeFirst() }
         cleaned = cleaned.trimmingCharacters(in: .whitespaces)
         if cleaned.isEmpty { return fallback }
         // 파일 시스템 이름 상한(255바이트)보다 넉넉히 짧게 자른다. 번호를 붙일 자리도 남긴다.
         let maxBytes = 200
         guard cleaned.utf8.count > maxBytes else { return cleaned }
         let (base, ext) = split(cleaned)
-        let suffix = ext.isEmpty || ext.utf8.count > 20 ? "" : "." + ext
-        var trimmed = ext.isEmpty || ext.utf8.count > 20 ? cleaned : base
+        let keepsExtension = !ext.isEmpty && ext.utf8.count <= 20
+        let suffix = keepsExtension ? "." + ext : ""
+        var trimmed = keepsExtension ? base : cleaned
         while trimmed.utf8.count + suffix.utf8.count > maxBytes { trimmed.removeLast() }
         return trimmed + suffix
     }

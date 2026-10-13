@@ -56,17 +56,3 @@ public protocol PeerTransporting: AnyObject {
     /// 결과는 `dataChannelOpened`/`dataChannelFailed`로, 닫히면 `disconnected`로 알린다.
     func openDataChannel(alongside peer: PeerConnectionID, port: UInt16?, transferID: String)
 }
-
-/// 데이터 채널(파일 전송용 별도 연결) 이벤트를 받는 쪽. `PeerManager`가 줄 단위 처리 없이 바이트를 그대로 넘긴다.
-public protocol PeerDataChannelHandling: AnyObject {
-    /// 들어온 연결의 첫 줄이 데이터 채널 머리말이다. false면 연결을 닫는다.
-    func shouldAcceptDataChannel(transferID: String, from deviceID: String) -> Bool
-    /// 받은 데이터 채널 바이트(머리말 제외).
-    func dataChannelReceived(transferID: String, data: Data)
-    /// 우리가 연 데이터 채널이 준비됐다. 머리말은 이미 보냈다.
-    func dataChannelOpened(transferID: String)
-    /// 우리가 연 데이터 채널이 열리지 못했다.
-    func dataChannelFailed(transferID: String)
-    /// 데이터 채널이 닫혔다(어느 쪽이 닫았든).
-    func dataChannelClosed(transferID: String)
-}

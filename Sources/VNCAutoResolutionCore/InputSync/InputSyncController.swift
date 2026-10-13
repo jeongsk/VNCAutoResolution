@@ -189,8 +189,8 @@ public final class InputSyncController {
         case .input(_, let sourceID, let isKorean):
             applyRemote(id: sourceID, isKorean: isKorean)
             onChange?()
-        default:
-            break   // 나머지는 코어의 다른 컨트롤러가 처리한다.
+        case .hello, .display, .clipboard, .fileOffer, .fileAnswer, .dataChannel:
+            break   // 코어의 다른 컨트롤러가 처리한다.
         }
     }
 

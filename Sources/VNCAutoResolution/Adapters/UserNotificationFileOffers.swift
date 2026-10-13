@@ -76,14 +76,3 @@ final class UserNotificationFileOffers: NSObject, FileOfferNotifying, UNUserNoti
         completionHandler()
     }
 }
-
-/// "<피어 이름>에서 <파일 이름> (<크기>)"
-enum FileOfferText {
-    static func describe(_ offer: IncomingFileOffer) -> String {
-        "\(offer.peerName)에서 \(offer.fileName) (\(size(offer.size)))"
-    }
-
-    static func size(_ bytes: Int) -> String {
-        ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
-    }
-}

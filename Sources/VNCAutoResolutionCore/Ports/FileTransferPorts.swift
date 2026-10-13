@@ -49,7 +49,8 @@ final class NullFileReader: LocalFileReading {
 }
 
 final class NullFileStore: ReceivedFileStoring {
-    func save(_ data: Data, preferredName name: String) throws -> String { throw NullFileReader.Unavailable() }
+    struct Unavailable: Error {}
+    func save(_ data: Data, preferredName name: String) throws -> String { throw Unavailable() }
 }
 
 final class NullFileOfferNotifier: FileOfferNotifying {
