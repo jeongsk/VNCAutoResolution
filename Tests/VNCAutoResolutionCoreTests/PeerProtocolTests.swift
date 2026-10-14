@@ -11,7 +11,9 @@ final class PeerProtocolTests: XCTestCase {
             .session(deviceID: "a", active: true),
             .hello(deviceID: "a", name: "맥", protocolVersion: 1, route: nil, features: ["clipboard"]),
             .clipboard(deviceID: "a", text: "여러 줄\n\"따옴표\" / 경로"),
-            .fileOffer(deviceID: "a", transferID: "t1", name: "보고서.pdf", size: 1234, sha256: "ab12"),
+            .fileOffer(deviceID: "a", transferID: "t1", name: "보고서.pdf", size: 1234),
+            .fileEnd(deviceID: "a", transferID: "t1", result: .saved),
+            .fileEnd(deviceID: "a", transferID: "t1", result: .canceled),
             .fileAnswer(deviceID: "a", transferID: "t1", accepted: true, reason: nil, port: 51234),
             .fileAnswer(deviceID: "a", transferID: "t1", accepted: false, reason: .disabled, port: nil),
             .dataChannel(deviceID: "a", transferID: "t1"),
@@ -56,6 +58,11 @@ final class PeerProtocolTests: XCTestCase {
         XCTAssertEqual(
             PeerCodec.decode(Data(line.utf8)),
             .fileAnswer(deviceID: "d1", transferID: "t", accepted: false, reason: .declined, port: nil))
+    }
+
+    func testFileEndWithUnknownResultDecodesAsInterrupted() throws {
+        let line = #"{"type":"fileEnd","deviceID":"d1","transferID":"t","result":"later"}"#
+        XCTAssertEqual(PeerCodec.decode(Data(line.utf8)), .fileEnd(deviceID: "d1", transferID: "t", result: .interrupted))
     }
 
     func testDataChannelWireFormat() throws {

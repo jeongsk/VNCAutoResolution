@@ -37,6 +37,8 @@ final class AppModel: ObservableObject {
         self.fileOffers = fileOffers
         // 피어 전송: Bonjour 서비스 이름은 deviceID(기기마다 유일, 사전순 비교로 연결 주체 결정).
         let transport = NetworkPeerTransport(serviceName: peerSettings.deviceID, eventQueue: .main)
+        let fileStore = DownloadsFileStore()
+        fileStore.removeLeftovers()   // 받는 도중 앱이 끝나 남은 임시 파일
         core = AppCore(
             vnc: detector, display: display, settings: settings, clock: clock,
             peerTransport: transport, peerSettings: peerSettings, passphraseStore: passphraseStore,
@@ -44,7 +46,7 @@ final class AppModel: ObservableObject {
             inputSource: inputSource, viewerApps: viewerApps, inputSyncSettings: inputSyncSettings,
             screen: screen, virtualDisplay: virtualDisplay, virtualDisplaySettings: virtualDisplaySettings,
             clipboard: clipboard, clipboardSettings: clipboardSettings,
-            fileReader: FileSystemFileReader(), fileStore: DownloadsFileStore(),
+            fileReader: FileSystemFileReader(), fileStore: fileStore,
             fileOfferNotifier: fileOffers, fileTransferSettings: fileTransferSettings)
         launchAtLogin = LoginItem.isEnabled
         // 모니터·더미 플러그 연결/해제 등 디스플레이 구성 변경 시 해상도 목록을 갱신한다.
@@ -149,7 +151,10 @@ final class AppModel: ObservableObject {
 
     // MARK: 파일 전송
 
-    var fileTransferStatus: FileTransferController.Status { core.fileTransfer.status }
+    var fileSendStatus: FileTransferController.Status { core.fileTransfer.sendStatus }
+    var fileReceiveStatus: FileTransferController.Status { core.fileTransfer.receiveStatus }
+    var isSendingFile: Bool { core.fileTransfer.isSending }
+    var isReceivingFile: Bool { core.fileTransfer.isReceiving }
     var incomingFileOffer: IncomingFileOffer? { core.fileTransfer.incomingOffer }
 
     var fileReceiveEnabled: Bool {
@@ -170,7 +175,7 @@ final class AppModel: ObservableObject {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        panel.message = "보낼 파일을 고르세요 (\(FileOfferText.size(FileTransferController.maxFileBytes)) 이하)"
+        panel.message = "보낼 파일을 고르세요"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         objectWillChange.send()
         core.fileTransfer.send(fileAt: url, to: deviceID)
@@ -184,6 +189,16 @@ final class AppModel: ObservableObject {
     func declineFileOffer(_ transferID: String) {
         objectWillChange.send()
         core.fileTransfer.decline(transferID: transferID)
+    }
+
+    func cancelFileSend() {
+        objectWillChange.send()
+        core.fileTransfer.cancelSend()
+    }
+
+    func cancelFileReceive() {
+        objectWillChange.send()
+        core.fileTransfer.cancelReceive()
     }
 
     // MARK: 클라이언트 화면 (호스트가 피어에게서 받은 것)

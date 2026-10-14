@@ -139,8 +139,12 @@ public final class NetworkPeerTransport: PeerTransporting, @unchecked Sendable {
     public func send(_ data: Data, to id: PeerConnectionID) {
         queue.async {
             guard let live = self.connections[id], live.announced else { return }
+            let isDataChannel = live.dataTransferID != nil
             live.connection.send(content: data, completion: .contentProcessed { error in
-                guard error != nil else { return }
+                guard error != nil else {
+                    if isDataChannel { self.emit(.dataSent(id)) }
+                    return
+                }
                 self.queue.async { self.finish(id) }
             })
         }
@@ -154,7 +158,8 @@ public final class NetworkPeerTransport: PeerTransporting, @unchecked Sendable {
     }
 
     public func openDataChannel(alongside peer: PeerConnectionID, port: UInt16?, transferID: String) {
-        queue.async {
+        queue.async { [weak self] in
+            guard let self else { return }
             guard let passphrase = self.activePassphrase, !passphrase.isEmpty,
                   let live = self.connections[peer], live.announced,
                   let endpoint = self.dataChannelEndpoint(for: live, port: port) else {
@@ -390,15 +395,27 @@ public final class NetworkPeerTransport: PeerTransporting, @unchecked Sendable {
         return live
     }
 
+    /// 받은 조각을 코어가 처리한 뒤에(이벤트 큐에서 핸들러가 돌고 나서) 다음 조각을 받는다.
+    /// 코어가 디스크 쓰기 등으로 네트워크보다 느려도 받은 바이트가 이벤트 큐에 쌓이지 않고 TCP 흐름 제어로 넘어간다.
     private func receiveLoop(_ live: Live) {
         live.connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) {
             [weak self] data, _, isComplete, error in
             guard let self, self.connections[live.id] === live else { return }
-            if let data, !data.isEmpty { self.emit(.received(live.id, data)) }
-            if error != nil || isComplete {
-                self.finish(live.id)
+            let next: @Sendable () -> Void = { [weak self] in
+                guard let self else { return }
+                self.queue.async {
+                    guard self.connections[live.id] === live else { return }
+                    if error != nil || isComplete {
+                        self.finish(live.id)
+                    } else {
+                        self.receiveLoop(live)
+                    }
+                }
+            }
+            if let data, !data.isEmpty {
+                self.emit(.received(live.id, data), then: next)
             } else {
-                self.receiveLoop(live)
+                next()
             }
         }
     }
@@ -427,8 +444,12 @@ public final class NetworkPeerTransport: PeerTransporting, @unchecked Sendable {
         queue.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
-    private func emit(_ event: PeerTransportEvent) {
-        guard let handler else { return }
-        eventQueue.async { handler(event) }
+    /// 이벤트를 전달한다. `then`은 핸들러가 돈 뒤 이벤트 큐에서 부른다.
+    private func emit(_ event: PeerTransportEvent, then done: (@Sendable () -> Void)? = nil) {
+        guard let handler else { done?(); return }
+        eventQueue.async {
+            handler(event)
+            done?()
+        }
     }
 }

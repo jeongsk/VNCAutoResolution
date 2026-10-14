@@ -57,7 +57,7 @@ final class PeerLoopbackTests: XCTestCase {
             let files = Boxed(fileTransfer)
             manager.onMessage = { message, peer in
                 switch message {
-                case .fileOffer, .fileAnswer: files.value.handle(message, from: peer)
+                case .fileOffer, .fileAnswer, .fileEnd: files.value.handle(message, from: peer)
                 default: messages.with { $0.append(message) }
                 }
             }
@@ -195,39 +195,50 @@ final class PeerLoopbackTests: XCTestCase {
 
     /// 몇 MB짜리 임의 바이트. 줄바꿈과 JSON처럼 보이는 바이트가 섞여 있다.
     private func payload(megabytes: Int) -> Data {
-        var generator = SystemRandomNumberGenerator()
-        var data = Data((0..<(megabytes * 1024 * 1024)).map { _ in UInt8.random(in: 0...255, using: &generator) })
+        var data = Data(count: megabytes * 1024 * 1024)
+        data.withUnsafeMutableBytes { arc4random_buf($0.baseAddress!, $0.count) }
         data.replaceSubrange(0..<16, with: Data("{\"type\":\"x\"}\n\n".utf8))
         return data
     }
 
-    /// `sender`가 `receiver`에게 파일을 보내고, 받는 쪽이 수락해 같은 바이트를 저장하는지 확인한다.
-    /// 전송 중에도 제어 연결 메시지가 오가는지 함께 본다.
-    private func assertFileTransfer(from sender: Node, to receiver: Node, receiverID: String,
-                                    file: StaticString = #filePath, line: UInt = #line) {
+    /// `sender`가 `receiver`에게 파일을 보내 받는 쪽이 수락할 때까지. 제안이 오지 않으면 nil.
+    private func startTransfer(from sender: Node, to receiver: Node, receiverID: String, data: Data,
+                               file: StaticString = #filePath, line: UInt = #line) -> Bool {
         let url = URL(fileURLWithPath: "/tmp/큰 파일.bin")
-        let data = payload(megabytes: 5)
         sender.queue.sync { sender.reader.files[url.path] = data }
         sender.queue.sync { sender.fileTransfer.send(fileAt: url, to: receiverID) }
-
-        XCTAssertTrue(wait { receiver.queue.sync { receiver.fileTransfer.incomingOffer != nil } },
-                      "제안이 도착하지 않음", file: file, line: line)
+        let offered = wait { receiver.queue.sync { receiver.fileTransfer.incomingOffer != nil } }
+        guard offered else {
+            XCTFail("제안이 도착하지 않음", file: file, line: line)
+            return false
+        }
         receiver.queue.sync {
             receiver.fileTransfer.accept(transferID: receiver.fileTransfer.incomingOffer!.transferID)
         }
+        return true
+    }
+
+    /// `sender`가 `receiver`에게 20MB 상한(#18)을 넘는 파일을 보내고, 받는 쪽이 같은 바이트를 저장하는지 확인한다.
+    /// 전송 중에도 제어 연결 메시지가 오가는지 함께 본다.
+    private func assertFileTransfer(from sender: Node, to receiver: Node, receiverID: String,
+                                    file: StaticString = #filePath, line: UInt = #line) {
+        let data = payload(megabytes: 30)
+        guard startTransfer(from: sender, to: receiver, receiverID: receiverID, data: data, file: file, line: line)
+        else { return }
         let input = PeerMessage.input(deviceID: receiver.manager.deviceID, sourceID: "com.apple.keylayout.ABC", isKorean: false)
         receiver.broadcast(input)
 
-        XCTAssertTrue(wait(10) { receiver.queue.sync { receiver.store.saved.count == 1 } },
-                      "파일이 저장되지 않음: \(receiver.queue.sync { receiver.fileTransfer.status })", file: file, line: line)
+        XCTAssertTrue(wait(30) { receiver.queue.sync { receiver.store.saved.count == 1 } },
+                      "파일이 저장되지 않음: \(receiver.queue.sync { receiver.fileTransfer.receiveStatus })",
+                      file: file, line: line)
         receiver.queue.sync {
             XCTAssertEqual(receiver.store.saved.first?.name, "큰 파일.bin", file: file, line: line)
             XCTAssertTrue(receiver.store.saved.first?.data == data, "받은 바이트가 다름", file: file, line: line)
         }
         XCTAssertTrue(wait { sender.messages.with { $0.contains(input) } }, "전송 중 제어 메시지가 오가지 않음",
                       file: file, line: line)
-        XCTAssertTrue(wait { sender.queue.sync { sender.fileTransfer.status == .sent(fileName: "큰 파일.bin") } },
-                      "보내는 쪽 상태: \(sender.queue.sync { sender.fileTransfer.status })", file: file, line: line)
+        XCTAssertTrue(wait { sender.queue.sync { sender.fileTransfer.sendStatus == .sent(fileName: "큰 파일.bin") } },
+                      "보내는 쪽 상태: \(sender.queue.sync { sender.fileTransfer.sendStatus })", file: file, line: line)
         // 데이터 채널은 피어로 등록되지 않는다.
         XCTAssertEqual(sender.peers.count, 1, file: file, line: line)
         XCTAssertEqual(receiver.peers.count, 1, file: file, line: line)
@@ -255,5 +266,29 @@ final class PeerLoopbackTests: XCTestCase {
         let (client, server) = try connectedPair()
         defer { client.stop(); server.stop() }
         assertFileTransfer(from: server, to: client, receiverID: "aaa-client")
+    }
+
+    /// 받는 쪽이 받는 도중 취소하면 임시 파일을 지우고, 보내는 쪽도 취소 상태가 된다.
+    func testReceiverCancelMidTransfer() throws {
+        let (client, server) = try connectedPair()
+        defer { client.stop(); server.stop() }
+        server.store.writeDelay = 0.005   // 받는 쪽을 느리게 해 전송 도중에 취소한다.
+        XCTAssertTrue(startTransfer(from: client, to: server, receiverID: "bbb-server", data: payload(megabytes: 30)))
+        XCTAssertTrue(wait(10) { server.queue.sync {
+            if case .receiving(_, let progress) = server.fileTransfer.receiveStatus { return progress.done > 0 }
+            return false
+        } }, "받기가 시작되지 않음")
+        server.queue.sync { server.fileTransfer.cancelReceive() }
+
+        XCTAssertTrue(wait(10) { client.queue.sync {
+            client.fileTransfer.sendStatus == .canceled(fileName: "큰 파일.bin", byPeer: true)
+        } }, "보내는 쪽 상태: \(client.queue.sync { client.fileTransfer.sendStatus })")
+        server.queue.sync {
+            XCTAssertEqual(server.fileTransfer.receiveStatus, .canceled(fileName: "큰 파일.bin", byPeer: false))
+            XCTAssertEqual(server.store.saved.count, 0)
+            XCTAssertEqual(server.store.files.first?.isDiscarded, true)
+        }
+        XCTAssertEqual(client.peers.count, 1)
+        XCTAssertEqual(server.peers.count, 1)
     }
 }

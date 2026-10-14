@@ -66,7 +66,7 @@ public final class PeerManager {
 
     /// 피어 목록/상태가 바뀔 때마다 불린다.
     public var onChange: (() -> Void)?
-    /// hello 이후 피어가 보낸 `input`/`session`/`display`/`clipboard`/`fileOffer`/`fileAnswer` 메시지. 코어(AppCore)가 구독한다.
+    /// hello 이후 피어가 보낸 `input`/`session`/`display`/`clipboard`/`fileOffer`/`fileAnswer`/`fileEnd` 메시지. 코어(AppCore)가 구독한다.
     public var onMessage: ((PeerMessage, Peer) -> Void)?
     /// 데이터 채널 이벤트를 받는 쪽(파일 전송).
     public weak var dataChannelHandler: PeerDataChannelHandling?
@@ -232,6 +232,11 @@ public final class PeerManager {
 
         case .dataChannelFailed(let transferID):
             dataChannelHandler?.dataChannelFailed(transferID: transferID)
+
+        case .dataSent(let id):
+            guard let connection = connections[id], connection.isOutbound,
+                  case .dataChannel(let transferID) = connection.mode else { return }
+            dataChannelHandler?.dataChannelSent(transferID: transferID)
         }
     }
 
@@ -307,7 +312,7 @@ public final class PeerManager {
             // 데이터 채널 머리말은 연결의 첫 줄로만 의미가 있다.
             ignoredMessageCount += 1
 
-        case .input, .session, .display, .clipboard, .fileOffer, .fileAnswer:
+        case .input, .session, .display, .clipboard, .fileOffer, .fileAnswer, .fileEnd:
             // hello 전이거나, hello에서 밝힌 deviceID와 다른 메시지(위장·중계)는 무시한다.
             guard let peer = connection.peer, peer.deviceID == message.deviceID else {
                 ignoredMessageCount += 1
@@ -366,6 +371,8 @@ public protocol PeerDataChannelHandling: AnyObject {
     func dataChannelReceived(transferID: String, data: Data)
     /// 우리가 연 데이터 채널이 준비됐다. 머리말은 이미 보냈다.
     func dataChannelOpened(transferID: String)
+    /// 우리가 연 데이터 채널에서 `sendData` 한 번 분량을 네트워크 스택에 넘겼다(보낸 순서대로).
+    func dataChannelSent(transferID: String)
     /// 우리가 연 데이터 채널이 열리지 못했다.
     func dataChannelFailed(transferID: String)
     /// 데이터 채널이 닫혔다(어느 쪽이 닫았든).

@@ -25,6 +25,9 @@ public enum PeerTransportEvent: Sendable {
     case dataChannelOpened(PeerConnectionID, transferID: String)
     /// `openDataChannel`로 연 데이터 채널이 준비되지 못했다.
     case dataChannelFailed(transferID: String)
+    /// `openDataChannel`로 연 데이터 채널에서 `send` 한 번 분량을 네트워크 스택에 넘겼다(보낸 순서대로 하나씩 온다).
+    /// 보내는 쪽은 이것을 받고 다음 조각을 보낸다. 파일 전체가 전송 계층 버퍼에 쌓이지 않게 하기 위해서다.
+    case dataSent(PeerConnectionID)
 }
 
 /// 전송 계층 설정. 암호가 비어 있으면 전송 계층은 아무것도 열지 않는다.

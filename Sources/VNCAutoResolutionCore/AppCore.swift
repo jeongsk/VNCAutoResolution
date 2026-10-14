@@ -97,7 +97,7 @@ public final class AppCore {
             switch message {
             case .display: display.handle(message, from: peer)
             case .clipboard: clipboardSync.handle(message, from: peer)
-            case .fileOffer, .fileAnswer: fileTransfer.handle(message, from: peer)
+            case .fileOffer, .fileAnswer, .fileEnd: fileTransfer.handle(message, from: peer)
             case .hello, .input, .session, .dataChannel: sync.handle(message, from: peer)
             }
         }

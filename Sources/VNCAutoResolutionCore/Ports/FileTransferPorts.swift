@@ -2,16 +2,37 @@ import Foundation
 
 /// 보낼 파일을 읽는 포트.
 public protocol LocalFileReading: AnyObject {
-    /// 파일 크기(바이트). 읽기 전에 크기 상한을 확인하는 데 쓴다.
-    func fileSize(at url: URL) throws -> Int
-    func readFile(at url: URL) throws -> Data
+    /// 보낼 파일을 연다. 일반 파일이 아니거나 읽을 수 없으면 던진다.
+    func open(_ url: URL) throws -> FileReadHandle
 }
 
-/// 받은 파일을 저장하는 포트. 실제 구현은 다운로드 폴더에 쓰고 `com.apple.quarantine` 속성을 붙인다.
+/// 연 파일. 앞에서부터 조각 단위로 읽는다.
+public protocol FileReadHandle: AnyObject {
+    /// 연 시점의 크기(바이트).
+    var size: Int { get }
+    /// 다음 조각을 최대 `count`바이트 읽는다. 파일 끝이면 빈 `Data`.
+    func read(upTo count: Int) throws -> Data
+    func close()
+}
+
+/// 받은 파일을 저장하는 포트. 실제 구현은 다운로드 폴더 안의 임시 파일에 이어 쓰고,
+/// 검증을 마치면 `com.apple.quarantine` 속성을 붙여 최종 이름으로 바꾼다.
 public protocol ReceivedFileStoring: AnyObject {
-    /// `name`(이미 정리된 이름)으로 저장한다. 같은 이름이 있으면 `FileNames.candidates(for:)` 순서로
-    /// 덮어쓰지 않는 이름을 고른다. 실제로 저장한 이름을 돌려준다.
-    func save(_ data: Data, preferredName name: String) throws -> String
+    /// 저장할 볼륨의 여유 공간(바이트). 알 수 없으면 nil(크기 확인을 건너뛴다).
+    func availableBytes() -> Int?
+    /// 임시 파일을 새로 만든다.
+    func beginFile() throws -> PartialFile
+}
+
+/// 받는 중인 임시 파일.
+public protocol PartialFile: AnyObject {
+    /// 끝에 이어 쓴다.
+    func write(_ data: Data) throws
+    /// 격리 속성을 붙이고 `name`(이미 정리된 이름)으로 바꾼다. 같은 이름이 있으면 `FileNames.candidates(for:)` 순서로
+    /// 덮어쓰지 않는 이름을 고른다. 실제로 쓴 이름을 돌려준다. 던지면 부르는 쪽이 `discard()`한다.
+    func commit(preferredName name: String) throws -> String
+    /// 임시 파일을 지운다. 여러 번 불러도 된다.
+    func discard()
 }
 
 /// 받는 쪽에 보여 줄 전송 제안.
@@ -44,13 +65,13 @@ public final class InMemoryFileTransferSettings: FileTransferSettingsStoring {
 /// 포트를 주입하지 않은 코어용.
 final class NullFileReader: LocalFileReading {
     struct Unavailable: Error {}
-    func fileSize(at url: URL) throws -> Int { throw Unavailable() }
-    func readFile(at url: URL) throws -> Data { throw Unavailable() }
+    func open(_ url: URL) throws -> FileReadHandle { throw Unavailable() }
 }
 
 final class NullFileStore: ReceivedFileStoring {
     struct Unavailable: Error {}
-    func save(_ data: Data, preferredName name: String) throws -> String { throw Unavailable() }
+    func availableBytes() -> Int? { nil }
+    func beginFile() throws -> PartialFile { throw Unavailable() }
 }
 
 final class NullFileOfferNotifier: FileOfferNotifying {
