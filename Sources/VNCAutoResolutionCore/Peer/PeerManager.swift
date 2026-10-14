@@ -46,6 +46,8 @@ public final class PeerManager {
         var limiter: RateLimiter
         var peer: Peer?
         var mode: Mode = .firstLine(Data())
+        /// 우리가 연 데이터 채널에서 머리말의 `dataSent`가 아직 오지 않았는지. 머리말은 `sendData`로 보낸 게 아니다.
+        var awaitingHeaderSent = false
     }
 
     /// 첫 줄(hello 또는 데이터 채널 머리말) 상한. 둘 다 짧다.
@@ -226,6 +228,7 @@ public final class PeerManager {
                 id: id, isOutbound: true, outboundRoute: nil,
                 framer: MessageFramer(maxLineLength: 0), limiter: RateLimiter(maxCount: 0, interval: 1))
             channel.mode = .dataChannel(transferID: transferID)
+            channel.awaitingHeaderSent = true
             connections[id] = channel
             transport.send(PeerCodec.encode(.dataChannel(deviceID: deviceID, transferID: transferID)), to: id)
             dataChannelHandler?.dataChannelOpened(transferID: transferID)
@@ -236,6 +239,11 @@ public final class PeerManager {
         case .dataSent(let id):
             guard let connection = connections[id], connection.isOutbound,
                   case .dataChannel(let transferID) = connection.mode else { return }
+            // 첫 번째는 머리말 몫이다(보낸 순서대로 온다).
+            guard !connection.awaitingHeaderSent else {
+                connections[id]?.awaitingHeaderSent = false
+                return
+            }
             dataChannelHandler?.dataChannelSent(transferID: transferID)
         }
     }

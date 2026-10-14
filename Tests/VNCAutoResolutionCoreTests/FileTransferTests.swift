@@ -170,11 +170,12 @@ final class FileTransferTests: XCTestCase {
 
     // MARK: 보내기: 스트리밍
 
-    /// 제안 → 수락 → 데이터 채널(7번) 열림까지.
+    /// 제안 → 수락 → 데이터 채널(7번) 열림 → 머리말을 넘겼다는 알림까지.
     private func startStreaming() throws -> String {
         let id = try XCTUnwrap(sendFile())
         receive(.fileAnswer(deviceID: peerID, transferID: id, accepted: true, reason: nil, port: 5000))
         core.peers.handle(.dataChannelOpened(7, transferID: id))
+        core.peers.handle(.dataSent(7))   // 머리말
         return id
     }
 
@@ -224,6 +225,18 @@ final class FileTransferTests: XCTestCase {
         XCTAssertEqual(header, .dataChannel(deviceID: me, transferID: id))
         XCTAssertTrue(body == content + digest(content), "파일 바이트 뒤에 SHA-256")
         XCTAssertTrue(reader.opened.first!.reads.allSatisfy { $0 <= transfer.chunkSize })
+    }
+
+    func testHeaderSentIsNotCountedAsFileChunk() throws {
+        let id = try XCTUnwrap(sendFile())
+        receive(.fileAnswer(deviceID: peerID, transferID: id, accepted: true, reason: nil, port: 5000))
+        core.peers.handle(.dataChannelOpened(7, transferID: id))
+        XCTAssertEqual(chunksSent, transfer.sendWindow)
+        core.peers.handle(.dataSent(7))   // 머리말을 넘김
+        XCTAssertEqual(chunksSent, transfer.sendWindow, "머리말 알림으로 다음 조각을 보내지 않는다")
+        XCTAssertEqual(percent(transfer.sendStatus), 0)
+        core.peers.handle(.dataSent(7))
+        XCTAssertEqual(chunksSent, transfer.sendWindow + 1)
     }
 
     func testProgressCountsDrainedBytes() throws {
@@ -312,6 +325,24 @@ final class FileTransferTests: XCTestCase {
         let before = transport.sent.count
         core.peers.handle(.dataSent(7))
         XCTAssertEqual(transport.sent.count, before, "취소한 뒤에는 더 보내지 않는다")
+    }
+
+    func testCannotCancelAfterLastByteIsHandedOver() throws {
+        let id = try startStreaming()
+        drainAll()
+        XCTAssertFalse(transfer.canCancelSend)
+        transfer.cancelSend()
+        XCTAssertFalse(sent().contains(.fileEnd(deviceID: me, transferID: id, result: .canceled)))
+        XCTAssertEqual(percent(transfer.sendStatus), 100)
+    }
+
+    func testSaveReportedAfterOurCancelShowsSent() throws {
+        let id = try startStreaming()
+        XCTAssertTrue(transfer.canCancelSend)
+        transfer.cancelSend()
+        // 받는 쪽이 취소보다 먼저 다 받아 저장했다.
+        receive(.fileEnd(deviceID: peerID, transferID: id, result: .saved))
+        XCTAssertEqual(transfer.sendStatus, .sent(fileName: "보고서.pdf"))
     }
 
     func testReceiverClosingChannelStopsSendingAndWaitsForReason() throws {

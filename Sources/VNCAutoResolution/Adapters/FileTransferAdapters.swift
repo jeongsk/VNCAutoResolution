@@ -93,7 +93,6 @@ final class DownloadsFileStore: ReceivedFileStoring {
         }
 
         func commit(preferredName name: String) throws -> String {
-            try handle.synchronize()
             closeHandle()
             try DownloadsFileStore.quarantine(url)
             for candidate in FileNames.candidates(for: name).prefix(1000) {

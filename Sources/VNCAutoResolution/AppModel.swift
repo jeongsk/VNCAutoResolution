@@ -154,6 +154,7 @@ final class AppModel: ObservableObject {
     var fileSendStatus: FileTransferController.Status { core.fileTransfer.sendStatus }
     var fileReceiveStatus: FileTransferController.Status { core.fileTransfer.receiveStatus }
     var isSendingFile: Bool { core.fileTransfer.isSending }
+    var canCancelFileSend: Bool { core.fileTransfer.canCancelSend }
     var isReceivingFile: Bool { core.fileTransfer.isReceiving }
     var incomingFileOffer: IncomingFileOffer? { core.fileTransfer.incomingOffer }
 

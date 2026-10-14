@@ -199,6 +199,8 @@ public final class FileTransferController: PeerDataChannelHandling {
 
     /// 보내는 중인 전송(답 대기 포함)이 있는지.
     public var isSending: Bool { outgoing != nil }
+    /// 보내기를 취소할 수 있는지. 마지막 바이트까지 넘긴 뒤에는 받는 쪽이 저장했을 수 있으므로 취소하지 않는다.
+    public var canCancelSend: Bool { outgoing.map { $0.phase != .drained } ?? false }
     /// 받는 중인 전송(수락 후)이 있는지.
     public var isReceiving: Bool { receiving != nil }
 
@@ -222,7 +224,9 @@ public final class FileTransferController: PeerDataChannelHandling {
         } catch {
             return setSendStatus(.sendFailed(fileName: fileName, reason: .readFailed))
         }
-        if outgoing != nil { cancelSend() }
+        if let outgoing {
+            finishSend(outgoing, .canceled(fileName: outgoing.fileName, byPeer: false), tell: .canceled)
+        }
 
         let transfer = Outgoing(transferID: UUID().uuidString, deviceID: deviceID, fileName: fileName, file: file,
                                 now: clock.now)
@@ -235,7 +239,7 @@ public final class FileTransferController: PeerDataChannelHandling {
 
     /// 보내는 전송을 취소한다(답 대기 중이어도). 상대도 취소 상태가 된다.
     public func cancelSend() {
-        guard let outgoing else { return }
+        guard canCancelSend, let outgoing else { return }
         finishSend(outgoing, .canceled(fileName: outgoing.fileName, byPeer: false), tell: .canceled)
     }
 
@@ -282,7 +286,7 @@ public final class FileTransferController: PeerDataChannelHandling {
     }
 
     /// 받는 쪽이 알린 결과에 해당하는 보내는 쪽 상태.
-    private static func sendStatus(for result: FileEndResult, fileName: String) -> Status {
+    private static func senderStatus(after result: FileEndResult, fileName: String) -> Status {
         switch result {
         case .saved: return .sent(fileName: fileName)
         case .canceled: return .canceled(fileName: fileName, byPeer: true)
@@ -383,7 +387,7 @@ public final class FileTransferController: PeerDataChannelHandling {
     private func receiveEnd(transferID: String, result: FileEndResult, from peer: PeerManager.Peer) {
         // 보내는 전송: 받는 쪽의 결과.
         if let outgoing, outgoing.transferID == transferID, outgoing.deviceID == peer.deviceID {
-            return finishSend(outgoing, Self.sendStatus(for: result, fileName: outgoing.fileName), tell: nil)
+            return finishSend(outgoing, Self.senderStatus(after: result, fileName: outgoing.fileName), tell: nil)
         }
         // 받는 전송: 보내는 쪽이 취소하거나 중단함.
         func byPeer(_ fileName: String) -> Status {
@@ -397,10 +401,16 @@ public final class FileTransferController: PeerDataChannelHandling {
             clearPending()
             return setReceiveStatus(byPeer(pending.offer.fileName))
         }
-        // 이미 끝낸 전송: 우리가 짐작한 결과(끊김·확인 없음)만 상대의 판정으로 바꾼다.
-        if let lastSent, lastSent.matches(transferID, peer.deviceID),
-           case .sendFailed(_, let reason) = sendStatus, [.interrupted, .noConfirmation, .connectionFailed].contains(reason) {
-            setSendStatus(Self.sendStatus(for: result, fileName: lastSent.fileName))
+        // 이미 끝낸 전송: 우리가 짐작한 결과(끊김·확인 없음)는 상대의 판정으로 바꾼다.
+        // 받는 쪽이 저장했다면 우리가 취소했더라도(취소가 저장보다 늦게 닿음) "보냄"으로 맞춘다.
+        if let lastSent, lastSent.matches(transferID, peer.deviceID) {
+            let guessed: Bool
+            switch sendStatus {
+            case .sendFailed(_, let reason): guessed = [.interrupted, .noConfirmation, .connectionFailed].contains(reason)
+            case .canceled(_, byPeer: false): guessed = result == .saved
+            default: guessed = false
+            }
+            if guessed { setSendStatus(Self.senderStatus(after: result, fileName: lastSent.fileName)) }
         }
         if let lastReceived, lastReceived.matches(transferID, peer.deviceID), result == .canceled,
            receiveStatus == .receiveFailed(fileName: lastReceived.fileName, reason: .interrupted) {

@@ -16,7 +16,7 @@ struct FileTransferMenuSection: View {
         if let status = Self.statusLabel(state.fileSendStatus) {
             Text(status)
         }
-        if state.isSendingFile {
+        if state.canCancelFileSend {
             Button("보내기 취소") { state.cancelFileSend() }
         }
         if let status = Self.statusLabel(state.fileReceiveStatus) {
