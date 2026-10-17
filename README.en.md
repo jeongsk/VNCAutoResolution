@@ -238,10 +238,9 @@ Pick a file with **파일 보내기…** (Send file…) in the menu, and a recei
 | --- | --- | --- | --- | --- |
 | When it works | During a remote session (clipboard); whenever the peer is connected (files) | When the Screen Sharing window has focus | While the Screen Sharing window is open | Nearby devices (Bluetooth/Wi-Fi) |
 | External paths such as Tailscale or a VPN | Yes | Yes | Yes | No |
-| Confirmation on the receiving side | Automatic for the clipboard, accept every time for files | Automatic | Automatic | Accept |
-| Password manager items | Not sent | Not distinguished | N/A | N/A |
+| Confirmation on the receiving side | Automatic for the clipboard, accept every time for files | Automatic | Automatic | Accept (automatic between devices on the same Apple Account) |
 
-Screen Sharing's shared clipboard works only while you are looking at the Screen Sharing window, and sometimes doesn't take effect. This app uses the peer connection it already keeps between the two Macs, so it works regardless of window focus. It can also send files over external networks where AirDrop isn't available.
+Screen Sharing's shared clipboard works only while you are looking at the Screen Sharing window, and sometimes doesn't take effect. This app uses the peer connection it already keeps between the two Macs, so it works regardless of window focus, and it doesn't send password manager items. It can also send files over external networks where AirDrop isn't available.
 
 ## When the other Mac runs an older version
 
@@ -304,7 +303,7 @@ Check these with `클립보드 공유` (Share clipboard) turned on on both Macs,
 - [ ] **Not shared outside a remote session**: After disconnecting and closing the viewer app, copied text is not shared with the other Mac, and `건너뜀 (원격 세션 아님)` (skipped: not a remote session) is shown.
 - [ ] **Password manager items excluded**: Copying a password from a password manager (for example 1Password or the Passwords app) is not shared, and `건너뜀 (비밀번호·임시 항목)` (skipped: password/transient item) is shown.
 - [ ] **Large text excluded**: Copying text larger than 256KB shows `건너뜀 (256KB 초과)` (skipped: over 256KB).
-- [ ] **Only one side on**: Turning off `클립보드 공유` on one side stops sharing to that side.
+- [ ] **Only one side on**: Turning off `클립보드 공유` on one side stops sharing in both directions (the side that has it on may still show `보냄`, sent).
 
 ### File transfer
 
