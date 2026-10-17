@@ -6,7 +6,7 @@
 
 [![Test](https://github.com/jeongsk/VNCAutoResolution/actions/workflows/test.yml/badge.svg)](https://github.com/jeongsk/VNCAutoResolution/actions/workflows/test.yml)
 
-A macOS menu bar app that removes two annoyances of connecting from a MacBook to a Mac mini over Screen Sharing (VNC).
+A macOS menu bar app that removes the annoyances of connecting from a MacBook to a Mac mini over Screen Sharing (VNC).
 
 > Note: the app's interface is currently Korean only. This README quotes menu items and messages in the original Korean, with an English gloss in parentheses.
 
@@ -14,6 +14,8 @@ A macOS menu bar app that removes two annoyances of connecting from a MacBook to
 - **Fit to client screen**: matches the screen size reported by the MacBook app. If a monitor is attached, it changes the monitor's resolution; if not, it sizes a virtual display to the MacBook's screen.
 - **Sharp even in standard quality (HiDPI scale-up)**: connecting with Screen Sharing in standard quality (not High Performance mode) makes text look blurry on the MacBook's Retina display. On connect, the Mac mini's screen is automatically drawn at 2x pixels (HiDPI) to match the MacBook's scale, so it stays sharp in standard quality. Example: a 1512×982 screen is drawn at 3024×1964 pixels. Because this increases the amount of data sent, toggle it with **HiDPI로 맞추기** (Fit with HiDPI) in the menu.
 - **Korean/English input sync**: during a remote session, keeps the Korean/English input source of both Macs in sync in both directions. This prevents Korean text from being split into individual jamo.
+- **Clipboard sharing**: during a remote session, text copied on one Mac can be pasted right away on the other. Works in both directions. Off by default; turn it on from the menu.
+- **File transfer**: pick a file from the menu and send it to the other Mac's Downloads folder. The receiver must accept every transfer; there is no size limit, and you can watch the progress and cancel. Off by default; turn it on from the menu.
 
 > License: [MIT](LICENSE). You may use, modify, and distribute it freely for personal, work, or commercial purposes. See [License](#license) below for details.
 
@@ -25,8 +27,8 @@ Install the same app on both Macs. There is no role setting.
 
 | Role | Example | Features that run |
 | --- | --- | --- |
-| Host Mac | Mac mini (the side with Screen Sharing on) | Automatic resolution change + input sync |
-| Client Mac | MacBook (the side that connects) | Input sync (there are no incoming port 5900 connections, so the resolution features stay off on their own) |
+| Host Mac | Mac mini (the side with Screen Sharing on) | Automatic resolution change + input sync + clipboard sharing and file transfer |
+| Client Mac | MacBook (the side that connects) | Input sync + clipboard sharing and file transfer (there are no incoming port 5900 connections, so the resolution features stay off on their own) |
 
 ## Requirements
 
@@ -89,6 +91,10 @@ If the macOS firewall is on, the first launch may show "들어오는 연결을 �
 
 The pairing password is stored in the Keychain. If a window asks for Keychain access, allow it.
 
+### Notifications
+
+Turning on `파일 받기` (Receive files) asks for notification permission. If you allow it, file requests appear as notifications, and you can answer right from the notification's `수락` (Accept) and `거절` (Decline) buttons. Even if you don't allow it, you can accept or decline from the menu.
+
 ## Host Mac (Mac mini) setup
 
 ### 1. Turn on Screen Sharing
@@ -128,7 +134,7 @@ When the displays change, the app automatically re-reads the resolution list.
 
 ## Pairing and connection
 
-Input sync requires the two Macs to be connected to each other. Open the settings window from **피어 설정…** (Peer settings…) in the menu.
+Input sync, clipboard sharing, and file transfer require the two Macs to be connected to each other. Open the settings window from **피어 설정…** (Peer settings…) in the menu.
 
 1. **페어링 암호** (Pairing password): Enter the **same password** on both Macs. It is used to authenticate and encrypt communication (TLS-PSK). If the passwords differ, the connection is rejected. The password is stored in the Keychain.
 2. **직접 연결할 피어 주소** (Peer address to connect to directly): On the same router, leave it empty and Bonjour discovers the peer automatically. On an external network such as Tailscale or a VPN, enter the other Mac's address.
@@ -185,6 +191,62 @@ The virtual display follows these rules.
 
 When a session starts, the other side is aligned once to the input state of the side viewing the viewer (the client Mac). Even if the two Macs use different Korean input methods (for example, 2-Set Korean and Gureum), it substitutes by language to match them, and for English it prefers ABC.
 
+## Clipboard sharing
+
+During a remote session, text you copy on one Mac can be pasted right away on the other. It works in both directions.
+
+| Menu item | Description |
+| --- | --- |
+| `클립보드 공유` (Share clipboard) | Off by default. It must be turned on **on both Macs**. The setting is stored separately on each Mac. |
+| `클립보드: 보냄` (Clipboard: sent) / `받음` (received) / `건너뜀 (…)` (skipped) | The last sharing state. When skipped, the reason is shown: `원격 세션 아님` (not a remote session), `256KB 초과` (over 256KB), `비밀번호·임시 항목` (password/transient item), or `상대 Mac 앱 업데이트 필요` (the other Mac's app needs an update). |
+
+- It sends and receives **only during a remote session**. The session conditions are the same as for Korean/English input sync above. Even if you turn off `원격 세션 중에만` (Only during remote sessions) for input sync, the clipboard is still shared only during a remote session.
+- It handles **plain text only**. Formatting such as images or RTF is not sent.
+- The following are not sent.
+  - Text larger than 256KB (in UTF-8)
+  - Items that a password manager marks as concealed, transient, or auto-generated (`org.nspasteboard.ConcealedType`, `TransientType`, `AutoGeneratedType`)
+- Content copied before you turned it on is not sent. Text written to the clipboard after being received is not sent back, so the two Macs don't keep bouncing it to each other.
+- The content travels encrypted over the peer connection (TLS-PSK).
+
+## File transfer
+
+Pick a file with **파일 보내기…** (Send file…) in the menu, and a receive request goes to the other Mac. When the other side accepts, the file is saved to that Mac's Downloads folder. If several Macs are connected, pick the receiving Mac from the `파일 보내기` (Send file) submenu.
+
+| Menu item | Description |
+| --- | --- |
+| `파일 보내기…` (Send file…) | Picks one file to send. Disabled while a file is being sent. |
+| `파일 받기` (Receive files) | Off by default. Only the **receiving side** needs to turn it on. If it is off, the sender sees `상대 Mac의 파일 받기가 꺼져 있음` (Receiving files is off on the other Mac). |
+| `<peer name>에서 <file name> (<size>)` (<file name> (<size>) from <peer name>) · `수락` (Accept) · `거절` (Decline) | A receive request. The same text also appears as a notification. |
+| `<file name>: 보내는 중 42% (1.2 GB / 2.9 GB)` (sending) · `보내기 취소` (Cancel sending) | Send progress (percent, amount transferred) and a cancel button. |
+| `<file name>: 받는 중 42% (1.2 GB / 2.9 GB)` (receiving) · `받기 취소` (Cancel receiving) | Receive progress and a cancel button. |
+
+- You can send whenever the peer is connected, **regardless of a remote session**. It also works over a direct address connection outside the same router (Tailscale, VPN).
+- **The receiver must accept every transfer.** If there is no answer within 60 seconds, it is treated as declined. This prevents anyone who knows only the pairing password from pushing files onto your Mac.
+- There is no file size limit. Files are sent in chunks, so even a large file is never loaded into memory all at once. If the receiver doesn't have enough free disk space, the request is declined up front (`상대 Mac의 디스크 공간 부족`, Not enough disk space on the other Mac).
+- Either side can cancel, and cancelling on one side puts the other side into the cancelled state too.
+- A received file is saved like this.
+  - While receiving, it is written to a hidden temporary file in the Downloads folder (`.VNCAutoResolution-….download`). If the connection drops, the transfer is cancelled, or verification fails, the temporary file is deleted. A temporary file left behind because the app quit mid-transfer is deleted on the next launch.
+  - The content is verified with SHA-256. If it doesn't match, the file is not saved.
+  - Path separators and a leading dot (hidden file) are removed from the file name, and a number is added if the name already exists. Existing files are never overwritten.
+  - **The `com.apple.quarantine` attribute is added.** Like a file downloaded from the internet, Gatekeeper checks it the first time you open it.
+- Files are sent not over the peer connection but over a separate connection opened for each transfer (the same port 52718, the same TLS-PSK). Korean/English sync and session signals keep flowing while a large file is being sent. No extra firewall setup is needed.
+- One file is sent and received at a time. Multiple files and folders can't be sent, and an interrupted transfer is not resumed.
+
+## How this differs from built-in macOS features
+
+| | This app | Screen Sharing's shared clipboard | Dragging onto the Screen Sharing window | AirDrop |
+| --- | --- | --- | --- | --- |
+| When it works | During a remote session (clipboard); whenever the peer is connected (files) | When the Screen Sharing window has focus | While the Screen Sharing window is open | Nearby devices (Bluetooth/Wi-Fi) |
+| External paths such as Tailscale or a VPN | Yes | Yes | Yes | No |
+| Confirmation on the receiving side | Automatic for the clipboard, accept every time for files | Automatic | Automatic | Accept |
+| Password manager items | Not sent | Not distinguished | N/A | N/A |
+
+Screen Sharing's shared clipboard works only while you are looking at the Screen Sharing window, and sometimes doesn't take effect. This app uses the peer connection it already keeps between the two Macs, so it works regardless of window focus. It can also send files over external networks where AirDrop isn't available.
+
+## When the other Mac runs an older version
+
+When connecting, the two Macs tell each other which features they support. If the other Mac's app is an older version that doesn't know these features, they are disabled and the menu shows `상대 Mac 앱 업데이트 필요` (The other Mac's app needs an update). Existing features such as Korean/English input sync keep working. Keep the app on both Macs at the same version.
+
 ## Launch at login
 
 Turn on **로그인 시 실행** (Launch at login) in the menu. The app starts on its own even when the Mac mini reboots. It works only when run as the `.app` bundle installed in `/Applications`. On failure, the menu shows the message "로그인 항목 설정 실패: …" (Failed to set login item: …).
@@ -233,6 +295,35 @@ Check these with `클라이언트 화면에 맞추기` (Fit to client screen) on
 - [ ] When not in a remote session (viewer app closed, no connection) and `원격 세션 중에만` (Only during remote sessions) is on, the input state is not synced.
 - [ ] Pressing `입력 동기화 일시정지` (Pause input sync) stops syncing, and `재개` (Resume) makes it work again.
 
+### Clipboard sharing
+
+Check these with `클립보드 공유` (Share clipboard) turned on on both Macs, and the client connected to the host with Screen Sharing.
+
+- [ ] **Two-way paste**: Copying text on the client lets you paste it right away on the host. Copying on the host lets you paste it on the client. The menu shows `클립보드: 보냄` (sent) and `받음` (received).
+- [ ] **No repetition**: After copying once, the state in both Macs' menus doesn't keep changing.
+- [ ] **Not shared outside a remote session**: After disconnecting and closing the viewer app, copied text is not shared with the other Mac, and `건너뜀 (원격 세션 아님)` (skipped: not a remote session) is shown.
+- [ ] **Password manager items excluded**: Copying a password from a password manager (for example 1Password or the Passwords app) is not shared, and `건너뜀 (비밀번호·임시 항목)` (skipped: password/transient item) is shown.
+- [ ] **Large text excluded**: Copying text larger than 256KB shows `건너뜀 (256KB 초과)` (skipped: over 256KB).
+- [ ] **Only one side on**: Turning off `클립보드 공유` on one side stops sharing to that side.
+
+### File transfer
+
+Check these with `파일 받기` (Receive files) turned on on the receiving side and the two Macs connected.
+
+- [ ] **Accept**: Picking a file with `파일 보내기…` (Send file…) on the sender shows `<peer name>에서 <file name> (<size>)` in the receiver's notification and menu. Accepting saves it to the Downloads folder; the sender's menu shows `보냄` (sent) and the receiver's menu shows `다운로드 폴더에 저장함` (saved to Downloads).
+- [ ] **Notification buttons**: You can also answer with the notification's `수락` (Accept) and `거절` (Decline) buttons instead of the menu.
+- [ ] **Decline**: Declining on the receiver shows `상대가 거절함` (declined by the other side) on the sender.
+- [ ] **Timeout**: With no answer for 60 seconds, the receiver shows `응답하지 않아 거절함` (declined: no answer) and the sender shows `상대가 응답하지 않아 취소됨` (cancelled: the other side didn't answer).
+- [ ] **Receiving off**: Sending while `파일 받기` is off on the receiver shows `상대 Mac의 파일 받기가 꺼져 있음` (Receiving files is off on the other Mac) on the sender.
+- [ ] **Quarantine**: `xattr -p com.apple.quarantine <file>` shows the attribute on the received file, and opening an app or script shows a Gatekeeper warning.
+- [ ] **Name collision**: Receiving the same file twice doesn't overwrite the existing file; it is saved under a numbered name.
+- [ ] **Large file progress**: Sending a multi-GB file makes the progress (percent, amount transferred) climb in both menus, and the app's memory use doesn't grow with the file size.
+- [ ] **Cancel**: Pressing `보내기 취소` (Cancel sending) on the sender while sending puts the receiver into `상대가 취소함` (cancelled by the other side). The same happens with `받기 취소` (Cancel receiving) on the receiver. No `.VNCAutoResolution-….download` temporary file remains in the Downloads folder (`ls -a ~/Downloads`).
+- [ ] **Dropped connection**: Cutting one side's network while sending shows a connection-lost reason on both sides, and no temporary file remains.
+- [ ] **Korean/English sync during a transfer**: While a large file is being sent, switching Korean/English in the remote session makes the other side follow without delay.
+- [ ] **Transfer over an external address**: Files can be sent and received while connected via a direct address over Tailscale/VPN.
+- [ ] **Older peer**: If the other Mac runs an older version without these features, `파일 보내기…` and clipboard sharing are disabled and `상대 Mac 앱 업데이트 필요` (The other Mac's app needs an update) is shown.
+
 ### Connection
 
 - [ ] **Auto-discovery**: On the same router, with the address empty and the same password entered, each Mac's menu shows the other's name and `자동 탐색` (auto-discovered).
@@ -262,6 +353,8 @@ However, Apple's documentation says Dynamic Resolution is **for High Performance
 - **On a Mac without a monitor, a virtual display sometimes is not removed and remains ([#13](https://github.com/jeongsk/VNCAutoResolution/issues/13)).** It appears that WindowServer cannot find the target to remove; the conditions have not been pinned down yet. When it remains, the menu shows a warning, and it goes away when you connect a monitor (or a dummy plug).
 - **The launch-at-login toggle has not been verified in a real environment either.**
 - There are reports that switching the input source (`TISSelectInputSource`) is sometimes not reflected from an inactive app.
+- Clipboard sharing handles plain text only. Formatted clipboard content such as images or RTF is not shared.
+- File transfer sends one file at a time. Multiple files or folders, sending from the Finder share menu or by drag and drop, and resuming an interrupted transfer are not supported. If the receiver is already receiving another file, a new request is declined (`상대 Mac이 다른 파일을 받는 중`, The other Mac is receiving another file).
 - Fit to client screen is based on a single client. Several simultaneous clients and Screen Sharing high-performance mode are not supported. If you turn on a monitor during a session, a virtual display that was already created remains as an extended display until the session ends. It does not set a main display or mirror.
 - Virtual display creation and mode changes have not been automatically tested (verified with the manual checklist above). In environments where the client app can't be used (Windows/Linux clients), there is no screen information, so it works with the target resolution.
 - The app is not notarized and is not distributed through the App Store. Windows/Linux clients are not supported.
