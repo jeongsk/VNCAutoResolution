@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import ObjectiveC
+import os
 import VNCAutoResolutionCore
 
 /// 가상 디스플레이 포트의 실제 구현: CoreGraphics 비공개 클래스(`CGVirtualDisplay` 등)를 ObjC 런타임으로만 쓴다.
@@ -24,6 +25,7 @@ final class RuntimeVirtualDisplay: VirtualDisplayControlling {
     /// 이 앱이 만드는 가상 디스플레이의 제조사·제품 번호. 남은 화면을 가려낼 때도 쓴다.
     private static let vendorID: UInt32 = 0x3A5
     private static let productID: UInt32 = 0x5A1
+    private static let log = Logger(subsystem: "com.jeongsk.VNCAutoResolution", category: "virtualdisplay")
 
     private let descriptorClass: NSObject.Type?
     private let displayClass: NSObject.Type?
@@ -77,13 +79,8 @@ final class RuntimeVirtualDisplay: VirtualDisplayControlling {
 
     /// 온라인 화면 중 이 앱의 제조사·제품 번호를 가졌지만 지금 들고 있는 것이 아닌 화면 수.
     var leftoverCount: Int {
-        var ids = [CGDirectDisplayID](repeating: 0, count: 32)
-        var count: UInt32 = 0
-        guard CGGetOnlineDisplayList(UInt32(ids.count), &ids, &count) == .success else { return 0 }
         let mine = displayID
-        return ids.prefix(Int(count)).filter {
-            $0 != mine && CGDisplayVendorNumber($0) == Self.vendorID && CGDisplayModelNumber($0) == Self.productID
-        }.count
+        return Self.onlineDisplaysOfThisApp().filter { $0 != mine }.count
     }
 
     func create(mode: VirtualDisplayMode) -> Bool {
@@ -99,8 +96,11 @@ final class RuntimeVirtualDisplay: VirtualDisplayControlling {
         descriptor.setValue(NSValue(size: CGSize(width: 300, height: 195)), forKey: "sizeInMillimeters")
         descriptor.setValue(NSNumber(value: Self.productID), forKey: "productID")
         descriptor.setValue(NSNumber(value: Self.vendorID), forKey: "vendorID")
-        // macOS는 vendor·product·serial마다 마지막 모드를 기억한다. 1배율과 HiDPI가 서로의 기억을 덮지 않도록 나눈다.
-        descriptor.setValue(NSNumber(value: UInt32(mode.hiDPI ? 2 : 1)), forKey: "serialNum")
+        // 1배율·HiDPI를 나누고, 남은 화면(#13)이 쓰는 시리얼은 피한다. 같은 시리얼이 있으면 만들기가 실패한다.
+        let inUse = Set(Self.onlineDisplaysOfThisApp().map { CGDisplaySerialNumber($0) })
+        let serial = mode.serialNumber(avoiding: inUse)
+        if serial > 2 { Self.log.info("남은 가상 화면의 시리얼 \(inUse.sorted(), privacy: .public)을 피해 \(serial)로 만든다") }
+        descriptor.setValue(NSNumber(value: serial), forKey: "serialNum")
         _ = descriptor.perform(NSSelectorFromString("setDispatchQueue:"), with: DispatchQueue.main)
 
         // display = [[CGVirtualDisplay alloc] initWithDescriptor:descriptor]  (+1 소유를 그대로 넘겨받는다)
@@ -141,6 +141,16 @@ final class RuntimeVirtualDisplay: VirtualDisplayControlling {
         display = nil
         descriptor = nil
         maxPixels = (0, 0)
+    }
+
+    /// 온라인 화면 중 이 앱의 제조사·제품 번호를 가진 것. (지금 들고 있는 것과 남은 것 모두)
+    private static func onlineDisplaysOfThisApp() -> [CGDirectDisplayID] {
+        var ids = [CGDirectDisplayID](repeating: 0, count: 32)
+        var count: UInt32 = 0
+        guard CGGetOnlineDisplayList(UInt32(ids.count), &ids, &count) == .success else { return [] }
+        return ids.prefix(Int(count)).filter {
+            CGDisplayVendorNumber($0) == vendorID && CGDisplayModelNumber($0) == productID
+        }
     }
 
     private var displayID: CGDirectDisplayID? {

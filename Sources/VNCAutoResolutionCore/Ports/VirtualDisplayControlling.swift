@@ -27,6 +27,16 @@ public struct VirtualDisplayMode: Equatable, Sendable {
     public var pointSize: (width: Int, height: Int) {
         hiDPI ? (width / 2, height / 2) : (width, height)
     }
+
+    /// 가상 디스플레이 설명자에 넣을 시리얼 번호. 1배율은 홀수, HiDPI는 짝수 중 `inUse`에 없는 가장 작은 값이다.
+    /// - macOS는 제조사·제품·시리얼마다 마지막 모드를 기억하므로 1배율과 HiDPI를 나눈다. 평소에는 1(1배율)과 2(HiDPI)다.
+    /// - 같은 제조사·제품·시리얼의 화면이 이미 있으면 새로 만들기가 실패한다(displayID 0). 그래서 지워지지 않고 남은
+    ///   화면(#13)이 쓰는 시리얼은 건너뛴다.
+    public func serialNumber(avoiding inUse: Set<UInt32>) -> UInt32 {
+        var serial: UInt32 = hiDPI ? 2 : 1
+        while inUse.contains(serial) { serial += 2 }
+        return serial
+    }
 }
 
 /// 가상 디스플레이 포트: 사용 가능 여부, 생성·모드 변경·제거.
@@ -41,7 +51,7 @@ public protocol VirtualDisplayControlling: AnyObject {
     /// 지금 가상 디스플레이의 포인트 크기. (`CGDisplayBounds`로 읽는다. 없으면 nil)
     var activeSize: (width: Int, height: Int)? { get }
     /// 이 앱이 예전에 만들었지만 시스템이 지우지 못하고 남은 가상 디스플레이 수. 지금 쓰는 것은 세지 않는다.
-    /// (헤드리스에서는 해제해도 남는다. 물리 모니터를 연결하면 정리된다 — #13)
+    /// (드물게 해제해도 남는다. 물리 모니터를 연결하면 정리된다. 남아 있어도 새 화면은 다른 시리얼로 만든다 — #13)
     var leftoverCount: Int { get }
     /// 가상 디스플레이를 만든다. 성공하면 true. 어떤 화면의 미러로도 만들지 않는다.
     func create(mode: VirtualDisplayMode) -> Bool

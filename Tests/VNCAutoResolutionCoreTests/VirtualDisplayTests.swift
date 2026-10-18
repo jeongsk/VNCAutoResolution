@@ -189,6 +189,25 @@ final class VirtualDisplayTests: XCTestCase {
             VirtualDisplayMode(width: 1512, height: 982, hiDPI: false))
     }
 
+    // MARK: 시리얼 번호 (#13)
+
+    func testSerialSeparatesOneXAndHiDPI() {
+        let oneX = VirtualDisplayMode(width: 1512, height: 982, hiDPI: false)
+        let hiDPI = VirtualDisplayMode(width: 3024, height: 1964, hiDPI: true)
+        XCTAssertEqual(oneX.serialNumber(avoiding: []), 1)
+        XCTAssertEqual(hiDPI.serialNumber(avoiding: []), 2)
+    }
+
+    func testSerialSkipsLeftoverDisplays() {
+        // 같은 시리얼의 화면이 남아 있으면 만들기가 실패하므로, 같은 홀짝 안에서 비어 있는 값을 고른다.
+        let oneX = VirtualDisplayMode(width: 1512, height: 982, hiDPI: false)
+        let hiDPI = VirtualDisplayMode(width: 3024, height: 1964, hiDPI: true)
+        XCTAssertEqual(oneX.serialNumber(avoiding: [1]), 3)
+        XCTAssertEqual(oneX.serialNumber(avoiding: [1, 2, 3]), 5)
+        XCTAssertEqual(oneX.serialNumber(avoiding: [2, 4]), 1)
+        XCTAssertEqual(hiDPI.serialNumber(avoiding: [1, 2]), 4)
+    }
+
     func testHiDPIDoublesPointSize() {
         let mode = VirtualDisplayMode(client: ClientDisplay(deviceID: "a", width: 1512, height: 982, scale: 2), hiDPI: true)
         XCTAssertEqual(mode, VirtualDisplayMode(width: 3024, height: 1964, hiDPI: true))
